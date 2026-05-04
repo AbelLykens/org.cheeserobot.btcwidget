@@ -2,6 +2,10 @@
 .gradle/
 build/
 
+# Auto-generated daemon JVM toolchain config — pins JDKs via foojay,
+# which F-Droid's scanner rejects. Let Gradle pick a system JDK instead.
+gradle/gradle-daemon-jvm.properties
+
 # Local configuration file (sdk path, etc)
 local.properties
 
