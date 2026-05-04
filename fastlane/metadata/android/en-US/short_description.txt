@@ -1,0 +1,1 @@
+Tiny home-screen widget showing the latest Bitcoin price in USD or EUR.

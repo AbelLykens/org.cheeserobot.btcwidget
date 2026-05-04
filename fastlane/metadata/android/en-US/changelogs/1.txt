@@ -1,0 +1,6 @@
+First release.
+
+* Home-screen widget showing latest BTC price.
+* USD or EUR per placed widget.
+* Tap to refresh; auto-refresh ~30 minutes.
+* Error notifications when the price feed is unreachable.

@@ -1,7 +1,11 @@
 # Cheese BTC Widget
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A small Android home-screen widget that shows the latest Bitcoin price from
 [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.org/price/latest.json).
+
+Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
 
 When you add the widget you pick **USD** or **EUR**; the widget then shows
 the Bitcoin logo, the currency symbol (`$` or `€`) and the price rounded to a
@@ -122,3 +126,65 @@ Common causes:
 - **Decimals**: `BitcoinPriceWidgetProvider.formatWhole` rounds to a
   whole number. Swap for `NumberFormat.getCurrencyInstance(...)` if you
   want a localized "$65,432.10".
+
+## Publishing to F-Droid
+
+The repo already contains everything F-Droid expects:
+
+- `LICENSE` — MIT
+- `CHANGELOG.md`
+- `fastlane/metadata/android/en-US/` — title, short and full description,
+  per-`versionCode` changelog. F-Droid scrapes this directory for the
+  listing on f-droid.org.
+- `fdroid/metadata/org.cheeserobot.btcwidget.yml` — the build recipe
+  template you'll paste into your `fdroiddata` fork.
+
+Steps to actually get listed on f-droid.org:
+
+1. Make sure the version you want shipped is tagged. F-Droid builds from
+   tags, not arbitrary commits:
+
+   ```bash
+   git tag v1.0
+   git push origin v1.0
+   ```
+
+2. Fork <https://gitlab.com/fdroid/fdroiddata>.
+
+3. Copy the contents of `fdroid/metadata/org.cheeserobot.btcwidget.yml`
+   into `metadata/org.cheeserobot.btcwidget.yml` inside your fork (path
+   matches the `applicationId`). Adjust if anything has changed.
+
+4. Run `fdroid lint org.cheeserobot.btcwidget` locally if you have the
+   `fdroidserver` tools installed (optional but speeds review). Fix any
+   warnings.
+
+5. Open a merge request against the upstream `fdroiddata` repo titled
+   *"New app: org.cheeserobot.btcwidget"*. Reference any tracking issue
+   if there is one.
+
+6. Wait. F-Droid review queue is typically a few weeks. The reviewers
+   will leave comments on the MR — usually small things like description
+   length, anti-feature disclosure, or build server compatibility.
+
+### Build server compatibility
+
+F-Droid's reproducible-build server pins specific Android Gradle Plugin
+versions. AGP and Gradle move faster than the buildserver does. As of
+this project's tagging, the local build is on AGP 9.x / Gradle 9.2 — if
+the buildserver hasn't caught up, the reviewer will ask you to ship the
+F-Droid build off a branch pinned to the supported AGP. The cleanest way
+is to keep `main` on whatever Android Studio recommends and maintain a
+`fdroid` branch with `build.gradle.kts` pinned to a known-good AGP, then
+point the YAML's `commit:` at the tag on that branch.
+
+Check the current supported versions at
+<https://gitlab.com/fdroid/fdroidserver/-/blob/master/buildserver/Vagrantfile>
+or in `fdroidserver`'s release notes before each release.
+
+### Anti-feature disclosure
+
+The app contacts exactly one host: `cheeserobot.org`. That isn't an
+F-Droid anti-feature, but the description should mention it (already
+done in `fastlane/.../full_description.txt`). If the reviewer flags
+anything else, update both the YAML and the fastlane description.
