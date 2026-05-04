@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The price text auto-sizes between 16sp and 48sp so it always fills the
+    widget as large as possible without wrapping. The icon scales with the
+    widget's height (match_parent + adjustViewBounds + fitCenter) so it
+    grows alongside the text when the user resizes the widget.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/btc_icon"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:contentDescription="@string/btc_icon_desc"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_bitcoin" />
+
+    <TextView
+        android:id="@+id/price_text"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:autoSizeMaxTextSize="48sp"
+        android:autoSizeMinTextSize="16sp"
+        android:autoSizeStepGranularity="1sp"
+        android:autoSizeTextType="uniform"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:textColor="@color/widget_text"
+        android:textStyle="bold"
+        tools:text="$78,875" />
+</LinearLayout>

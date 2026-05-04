@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.CheeseWidget" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/bitcoin_orange</item>
+    </style>
+
+    <style name="Theme.CheeseWidget.Config" parent="Theme.CheeseWidget">
+        <!-- Used by the configuration activity shown on Add. -->
+    </style>
+
+</resources>

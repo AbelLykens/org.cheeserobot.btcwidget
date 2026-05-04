@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cheese BTC Widget</string>
+    <string name="widget_label">BTC Price</string>
+    <string name="widget_description">Shows the latest Bitcoin price from cheeserobot.org</string>
+
+    <string name="config_title">Choose your currency</string>
+    <string name="config_subtitle">Pick how you want the BTC price displayed</string>
+    <string name="config_usd">US Dollars ($)</string>
+    <string name="config_eur">Euros (€)</string>
+
+    <string name="btc_icon_desc">Bitcoin logo</string>
+
+    <string name="notif_title">BTC widget couldn\'t load price</string>
+
+    <!-- Launcher screen -->
+    <string name="launcher_subtitle">Live BTC price on your home screen</string>
+    <string name="preview_loading">Checking price feed…</string>
+    <string name="launcher_how_to_title">How to add the widget</string>
+    <string name="launcher_how_to_steps">1.  Long-press an empty spot on your home screen.\n2.  Tap \"Widgets\".\n3.  Find \"Cheese BTC Widget\" in the list.\n4.  Drag \"BTC Price\" onto the home screen.\n5.  Choose USD or EUR.</string>
+    <string name="launcher_open_home">Take me to the home screen</string>
+    <string name="launcher_refresh_all">Refresh existing widgets</string>
+    <string name="launcher_footer">Tap any widget to refresh it. The widget also updates itself about every 30 minutes.</string>
+    <string name="toast_no_widgets">No widgets placed yet — add one from the home screen.</string>
+    <string name="toast_refresh_sent">Refreshing %1$d widget(s)…</string>
+</resources>

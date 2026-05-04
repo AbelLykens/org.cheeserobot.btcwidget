@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ~75% opaque dark surface. -->
+    <color name="widget_background">#BF202124</color>
+    <color name="widget_text">#FFEDEDED</color>
+    <color name="bitcoin_orange">#FFF7931A</color>
+</resources>
