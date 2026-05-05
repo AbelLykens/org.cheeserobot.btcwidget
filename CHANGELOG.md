@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3] - 2026-05-05
+
+A big release: the widget now shows a 24-hour or 7-day price-change
+indicator, refreshes every placed widget at once on a single shared
+network call, and the settings screen has been reorganised around a
+live preview.
+
+### Added
+- **Price change indicator.** Optional red/green percentage line at the
+  bottom of the widget showing 24-hour or 7-day change vs the current
+  price. Off by default; pick "24h" or "7d" under Advanced options.
+  Driven by the new `price_1d_ago_*` / `price_1w_ago_*` fields the
+  upstream feed now exposes.
+- **Refresh-all on tap.** Tapping any widget now refreshes every placed
+  widget on the device. The feed returns USD and EUR (and historicals)
+  in one JSON, so a single HTTP call covers everyone — multi-widget
+  setups stay in sync and don't make redundant requests.
+- **15-second rate limit** on user-triggered refreshes. A second tap
+  inside the window repaints from cache instead of hitting the wire.
+  System-scheduled updates (every 30 min) and the settings-save path
+  bypass the limit.
+- **Live widget preview** at the top of the settings screen, sitting on
+  a checkered grey background so opacity changes are visible without
+  closing the screen. Updates in place on every input change.
+- **Two-tier settings.** The configure screen now shows just the
+  currency picker by default. An "Advanced options" header expands to
+  reveal tracked amount, formatting, opacity, display toggles, and the
+  change indicator. Auto-expands on reconfigure when any advanced
+  setting is non-default.
+- **Version footer** at the bottom of the settings screen.
+
+### Changed
+- **Bitcoin logo now lines up with the price text vertically.** The
+  widget layout was restructured so the icon and the price share a
+  horizontal row, with the "1 BTC" caption as a sibling above. The
+  icon's centre now aligns with the price number's centre rather than
+  the centre of the icon-plus-caption stack.
+- **Robust JSON parsing.** Currency lookup tokenises keys and excludes
+  any key containing "ago", so "price_1d_ago_usd" can never shadow
+  today's "price_usd" regardless of key order.
+
+### Fixed
+- **No more redundant fetches** when multiple widgets share a currency
+  — previously each widget's refresh fired its own HTTP request.
+
+[2.3]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.3
+
 ## [2.1] - 2026-05-05
 
 ### Changed
