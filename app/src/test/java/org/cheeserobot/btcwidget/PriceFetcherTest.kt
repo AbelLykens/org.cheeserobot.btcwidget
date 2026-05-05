@@ -2,6 +2,7 @@ package org.cheeserobot.btcwidget
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -53,6 +54,49 @@ class PriceFetcherTest {
         assertEquals(67379.155, PriceFetcher.findCurrency(json, "EUR")!!, 0.0001)
     }
 
+    // Newer shape with 1d / 1w historical prices alongside today's.
+    @Test fun cheeserobotShapeWithHistory() {
+        val json = JSONObject(
+            """{
+                "when": "2026-05-05T17:49:03.042Z",
+                "price_usd": "81324.9950",
+                "price_eur": "69498.0850",
+                "source": "CoinDesk",
+                "when_unix": "1778003343",
+                "price_1d_ago_usd": "80325.0050",
+                "price_1w_ago_usd": "76177.9950",
+                "price_1d_ago_eur": "68717.1350",
+                "price_1w_ago_eur": "65033.5250"
+            }""".trimIndent()
+        )
+        // Current price should NOT pick up an "_ago" key.
+        assertEquals(81324.995, PriceFetcher.findCurrency(json, "USD")!!, 0.0001)
+        assertEquals(69498.085, PriceFetcher.findCurrency(json, "EUR")!!, 0.0001)
+
+        assertEquals(80325.005, PriceFetcher.findHistorical(json, "USD", "1d")!!, 0.0001)
+        assertEquals(76177.995, PriceFetcher.findHistorical(json, "USD", "1w")!!, 0.0001)
+        assertEquals(68717.135, PriceFetcher.findHistorical(json, "EUR", "1d")!!, 0.0001)
+        assertEquals(65033.525, PriceFetcher.findHistorical(json, "EUR", "1w")!!, 0.0001)
+    }
+
+    // If the key order is reversed so ago-keys come *before* current
+    // keys, the "ago" exclusion still keeps us from grabbing a stale
+    // value as today's price.
+    @Test fun agoKeyDoesNotShadowCurrent() {
+        val json = JSONObject(
+            """{"price_1d_ago_usd": "80000.00", "price_usd": "81000.00"}"""
+        )
+        val current = PriceFetcher.findCurrency(json, "usd")!!
+        assertEquals(81000.0, current, 0.0001)
+        assertNotEquals(80000.0, current, 0.0001)
+    }
+
+    @Test fun historicalReturnsNullWhenAbsent() {
+        val json = JSONObject("""{"price_usd": "81000.00"}""")
+        assertNull(PriceFetcher.findHistorical(json, "usd", "1d"))
+        assertNull(PriceFetcher.findHistorical(json, "usd", "1w"))
+    }
+
     @Test fun suffixedKey() {
         val json = JSONObject("""{"usd_price": 65000}""")
         assertEquals(65000.0, PriceFetcher.findCurrency(json, "usd")!!, 0.0)
@@ -79,5 +123,15 @@ class PriceFetcherTest {
     @Test fun delimitedSubstringDoesMatch() {
         val json = JSONObject("""{"aud_usd": 0.65}""")
         assertEquals(0.65, PriceFetcher.findCurrency(json, "usd")!!, 0.0)
+    }
+
+    @Test fun tokeniseHistoricalKey() {
+        val tokens = PriceFetcher.tokens("price_1d_ago_usd")
+        assertEquals(setOf("price", "1d", "ago", "usd"), tokens)
+    }
+
+    @Test fun tokeniseScreamingSnake() {
+        val tokens = PriceFetcher.tokens("PRICE_USD")
+        assertEquals(setOf("price", "usd"), tokens)
     }
 }

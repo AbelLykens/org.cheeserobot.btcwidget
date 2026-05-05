@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Two-tier settings: the simple/default screen shows just the currency
+    picker. Tapping the "Advanced options" header expands the rest of the
+    knobs (tracked amount, formatting, opacity, display toggles, change
+    indicator). For reconfigure flows where any advanced setting is
+    non-default, the activity auto-expands the section on entry so the
+    user can see what's already set.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -37,7 +45,9 @@
             android:text="@string/config_subtitle"
             android:textSize="14sp" />
 
-        <!-- Currency picker -->
+        <!-- ============================================================
+             Simple section — currency only. Always visible.
+             ============================================================ -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -50,7 +60,7 @@
             android:id="@+id/rg_currency"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="16dp"
             android:orientation="vertical">
 
             <RadioButton
@@ -72,129 +82,200 @@
                 android:text="@string/config_btc" />
         </RadioGroup>
 
-        <!-- Tracked amount -->
+        <!-- ============================================================
+             Advanced toggle. Tapping flips the visibility of
+             advanced_section below and updates this caret.
+             ============================================================ -->
         <TextView
+            android:id="@+id/advanced_toggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:text="@string/config_tracked_amount_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/et_tracked_amount"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:hint="@string/config_tracked_amount_hint"
-            android:inputType="numberDecimal"
-            android:maxLength="16"
-            android:autofillHints="@null"
-            android:importantForAutofill="no"
-            tools:text="1" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            android:alpha="0.7"
-            android:text="@string/config_tracked_amount_hint_long"
-            android:textSize="12sp" />
-
-        <!-- Number formatting -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:text="@string/config_format_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <CheckBox
-            android:id="@+id/cb_show_decimals"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/config_show_decimals" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="20dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="44dp"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:paddingVertical="10dp"
+            android:text="@string/config_advanced_show"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/config_separator_label"
-                android:textSize="13sp" />
-
-            <Spinner
-                android:id="@+id/sp_separator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="160dp" />
-        </LinearLayout>
-
-        <!-- Background opacity -->
         <LinearLayout
+            android:id="@+id/advanced_section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:orientation="horizontal">
+            android:layout_marginTop="4dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- Tracked amount -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:text="@string/config_tracked_amount_label"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_tracked_amount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:autofillHints="@null"
+                android:hint="@string/config_tracked_amount_hint"
+                android:importantForAutofill="no"
+                android:inputType="numberDecimal"
+                android:maxLength="16"
+                tools:text="1" />
 
             <TextView
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/config_opacity_label"
+                android:layout_marginBottom="20dp"
+                android:alpha="0.7"
+                android:text="@string/config_tracked_amount_hint_long"
+                android:textSize="12sp" />
+
+            <!-- Number formatting -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:text="@string/config_format_label"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <CheckBox
+                android:id="@+id/cb_show_decimals"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_show_decimals" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="20dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/config_separator_label"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/sp_separator"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="160dp" />
+            </LinearLayout>
+
+            <!-- Background opacity -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/config_opacity_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/opacity_value"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    tools:text="75%" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/sb_opacity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:max="100" />
+
+            <!-- Display toggles -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:text="@string/config_display_label"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <CheckBox
+                android:id="@+id/cb_hide_logo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_hide_logo" />
+
+            <CheckBox
+                android:id="@+id/cb_hide_unit_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:text="@string/config_hide_unit_label" />
+
+            <!-- Change indicator (red/green % line) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:text="@string/config_change_label"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/opacity_value"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
-                tools:text="75%" />
+                android:layout_marginBottom="6dp"
+                android:alpha="0.7"
+                android:text="@string/config_change_hint"
+                android:textSize="12sp" />
+
+            <RadioGroup
+                android:id="@+id/rg_change"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/rb_change_off"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_change_off" />
+
+                <RadioButton
+                    android:id="@+id/rb_change_1d"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_change_1d" />
+
+                <RadioButton
+                    android:id="@+id/rb_change_1w"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_change_1w" />
+            </RadioGroup>
         </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/sb_opacity"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            android:max="100" />
-
-        <!-- Display toggles -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:text="@string/config_display_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <CheckBox
-            android:id="@+id/cb_hide_logo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/config_hide_logo" />
-
-        <CheckBox
-            android:id="@+id/cb_hide_unit_label"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:text="@string/config_hide_unit_label" />
 
         <!-- Action buttons -->
         <Button
             android:id="@+id/btn_save"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:layout_marginBottom="8dp"
             android:text="@string/config_save" />
 
@@ -203,5 +284,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/config_cancel" />
+
+        <!-- Version footer — populated at runtime from PackageInfo. -->
+        <TextView
+            android:id="@+id/version_footer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="16dp"
+            android:alpha="0.5"
+            android:gravity="center"
+            android:textSize="11sp"
+            tools:text="Version 1.0" />
     </LinearLayout>
 </ScrollView>

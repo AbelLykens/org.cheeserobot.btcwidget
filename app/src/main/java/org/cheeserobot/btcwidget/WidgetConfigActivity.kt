@@ -3,11 +3,14 @@ package org.cheeserobot.btcwidget
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
@@ -20,14 +23,14 @@ import android.widget.TextView
  *   • again whenever the user taps the pencil icon while moving the widget
  *     (Android 12+ — enabled via `widgetFeatures="reconfigurable"`).
  *
- * Lets the user pick:
- *   • currency (USD / EUR / BTC)
- *   • tracked amount of Bitcoin (default 1.0)
- *   • whether to show decimals on the displayed price
- *   • the thousands separator
- *   • background opacity (0–100%)
- *   • whether the bitcoin logo is shown
- *   • whether the "<amount> BTC" caption is shown
+ * Two-tier UI:
+ *   • Simple — currency picker only, on the assumption that most people
+ *     just want USD or EUR and don't care about formatting.
+ *   • Advanced — collapsed by default, expanded with a single tap.
+ *     Houses tracked amount, number formatting, opacity, display
+ *     toggles, and the new red/green change indicator. Auto-expands on
+ *     the reconfigure path when any advanced setting is non-default, so
+ *     the user immediately sees what's already customised.
  *
  * Fetch errors are surfaced inside the launcher activity, so this
  * screen no longer asks for the POST_NOTIFICATIONS permission.
@@ -37,10 +40,17 @@ class WidgetConfigActivity : Activity() {
     private var appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
     private var isReconfigure: Boolean = false
 
+    // Currency (simple section)
     private lateinit var rgCurrency: RadioGroup
     private lateinit var rbUsd: RadioButton
     private lateinit var rbEur: RadioButton
     private lateinit var rbBtc: RadioButton
+
+    // Advanced toggle + container
+    private lateinit var advancedToggle: TextView
+    private lateinit var advancedSection: LinearLayout
+
+    // Advanced section views
     private lateinit var etTrackedAmount: EditText
     private lateinit var cbShowDecimals: CheckBox
     private lateinit var spSeparator: Spinner
@@ -48,6 +58,10 @@ class WidgetConfigActivity : Activity() {
     private lateinit var opacityValue: TextView
     private lateinit var cbHideLogo: CheckBox
     private lateinit var cbHideUnitLabel: CheckBox
+    private lateinit var rgChange: RadioGroup
+    private lateinit var rbChangeOff: RadioButton
+    private lateinit var rbChange1d: RadioButton
+    private lateinit var rbChange1w: RadioButton
 
     /** Mirrors the order of `R.array.config_separator_options`. */
     private val separatorKeys = listOf(
@@ -87,6 +101,8 @@ class WidgetConfigActivity : Activity() {
         wireSeparatorAdapter()
         loadInitialState()
         wireSeekBar()
+        wireAdvancedToggle()
+        showVersionFooter()
 
         findViewById<Button>(R.id.btn_save).setOnClickListener { persistAndFinish() }
         findViewById<Button>(R.id.btn_cancel).setOnClickListener { finish() }
@@ -97,6 +113,10 @@ class WidgetConfigActivity : Activity() {
         rbUsd = findViewById(R.id.rb_usd)
         rbEur = findViewById(R.id.rb_eur)
         rbBtc = findViewById(R.id.rb_btc)
+
+        advancedToggle = findViewById(R.id.advanced_toggle)
+        advancedSection = findViewById(R.id.advanced_section)
+
         etTrackedAmount = findViewById(R.id.et_tracked_amount)
         cbShowDecimals = findViewById(R.id.cb_show_decimals)
         spSeparator = findViewById(R.id.sp_separator)
@@ -104,6 +124,10 @@ class WidgetConfigActivity : Activity() {
         opacityValue = findViewById(R.id.opacity_value)
         cbHideLogo = findViewById(R.id.cb_hide_logo)
         cbHideUnitLabel = findViewById(R.id.cb_hide_unit_label)
+        rgChange = findViewById(R.id.rg_change)
+        rbChangeOff = findViewById(R.id.rb_change_off)
+        rbChange1d = findViewById(R.id.rb_change_1d)
+        rbChange1w = findViewById(R.id.rb_change_1w)
     }
 
     private fun wireSeparatorAdapter() {
@@ -148,6 +172,32 @@ class WidgetConfigActivity : Activity() {
 
         cbHideLogo.isChecked = WidgetPrefs.loadHideLogo(this, appWidgetId)
         cbHideUnitLabel.isChecked = WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
+
+        when (WidgetPrefs.loadChangeIndicator(this, appWidgetId)) {
+            WidgetPrefs.CHANGE_1D -> rbChange1d.isChecked = true
+            WidgetPrefs.CHANGE_1W -> rbChange1w.isChecked = true
+            else -> rbChangeOff.isChecked = true
+        }
+
+        // Auto-expand advanced when any advanced field is non-default,
+        // so users tapping the pencil icon see their existing tweaks
+        // without an extra click.
+        if (hasNonDefaultAdvanced()) setAdvancedExpanded(true)
+    }
+
+    /**
+     * True when at least one advanced setting deviates from its default,
+     * which makes "Advanced" worth opening on entry for reconfigure.
+     */
+    private fun hasNonDefaultAdvanced(): Boolean {
+        if (WidgetPrefs.loadTrackedAmount(this, appWidgetId) != WidgetPrefs.DEFAULT_TRACKED_AMOUNT) return true
+        if (WidgetPrefs.loadShowDecimals(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_DECIMALS) return true
+        if (WidgetPrefs.loadSeparator(this, appWidgetId) != WidgetPrefs.DEFAULT_SEPARATOR) return true
+        if (WidgetPrefs.loadOpacity(this, appWidgetId) != WidgetPrefs.DEFAULT_OPACITY) return true
+        if (WidgetPrefs.loadHideLogo(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_LOGO) return true
+        if (WidgetPrefs.loadHideUnitLabel(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_UNIT_LABEL) return true
+        if (WidgetPrefs.loadChangeIndicator(this, appWidgetId) != WidgetPrefs.DEFAULT_CHANGE_INDICATOR) return true
+        return false
     }
 
     private fun wireSeekBar() {
@@ -158,6 +208,35 @@ class WidgetConfigActivity : Activity() {
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
+    }
+
+    private fun wireAdvancedToggle() {
+        advancedToggle.setOnClickListener {
+            setAdvancedExpanded(advancedSection.visibility != View.VISIBLE)
+        }
+    }
+
+    private fun setAdvancedExpanded(expanded: Boolean) {
+        advancedSection.visibility = if (expanded) View.VISIBLE else View.GONE
+        advancedToggle.setText(
+            if (expanded) R.string.config_advanced_hide
+            else R.string.config_advanced_show
+        )
+    }
+
+    /**
+     * Display the app version at the bottom of the screen — handy for
+     * users reporting issues and for confirming an update has installed.
+     */
+    private fun showVersionFooter() {
+        val footer = findViewById<TextView>(R.id.version_footer) ?: return
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (_: PackageManager.NameNotFoundException) {
+            ""
+        }
+        footer.text = if (versionName.isEmpty()) ""
+        else getString(R.string.config_version_label, versionName)
     }
 
     private fun selectedCurrency(): String = when {
@@ -195,6 +274,12 @@ class WidgetConfigActivity : Activity() {
         return separatorKeys.getOrElse(pos) { WidgetPrefs.SEPARATOR_AUTO }
     }
 
+    private fun selectedChangeIndicator(): String = when {
+        rbChange1d.isChecked -> WidgetPrefs.CHANGE_1D
+        rbChange1w.isChecked -> WidgetPrefs.CHANGE_1W
+        else -> WidgetPrefs.CHANGE_OFF
+    }
+
     private fun persistAndFinish() {
         WidgetPrefs.saveCurrency(this, appWidgetId, selectedCurrency())
         WidgetPrefs.saveTrackedAmount(this, appWidgetId, parsedTrackedAmount())
@@ -203,6 +288,7 @@ class WidgetConfigActivity : Activity() {
         WidgetPrefs.saveOpacity(this, appWidgetId, sbOpacity.progress)
         WidgetPrefs.saveHideLogo(this, appWidgetId, cbHideLogo.isChecked)
         WidgetPrefs.saveHideUnitLabel(this, appWidgetId, cbHideUnitLabel.isChecked)
+        WidgetPrefs.saveChangeIndicator(this, appWidgetId, selectedChangeIndicator())
 
         val mgr = AppWidgetManager.getInstance(this)
         BitcoinPriceWidgetProvider.updateWidget(this, mgr, appWidgetId)

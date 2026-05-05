@@ -14,6 +14,9 @@
     <string name="config_eur">Euros (€)</string>
     <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
 
+    <string name="config_advanced_show">Advanced options ▾</string>
+    <string name="config_advanced_hide">Advanced options ▴</string>
+
     <string name="config_tracked_amount_label">Tracked amount</string>
     <string name="config_tracked_amount_hint">1</string>
     <string name="config_tracked_amount_hint_long">How much BTC to price. e.g. 0.5 shows half a Bitcoin\'s worth. Default: 1.</string>
@@ -36,8 +39,16 @@
     <string name="config_hide_logo">Hide Bitcoin logo</string>
     <string name="config_hide_unit_label">Hide \"1 BTC\" caption</string>
 
+    <string name="config_change_label">Price change indicator</string>
+    <string name="config_change_hint">Show a coloured percentage line at the bottom of the widget. Green when up, red when down.</string>
+    <string name="config_change_off">Off</string>
+    <string name="config_change_1d">Show 24-hour change</string>
+    <string name="config_change_1w">Show 7-day change</string>
+
     <string name="config_save">Save</string>
     <string name="config_cancel">Cancel</string>
+
+    <string name="config_version_label">Version %1$s</string>
 
     <string name="btc_icon_desc">Bitcoin logo</string>
 

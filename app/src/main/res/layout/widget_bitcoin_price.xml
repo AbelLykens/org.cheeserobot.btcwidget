@@ -4,15 +4,15 @@
 
       FrameLayout (widget_root, transparent)
         ├─ ImageView (background_view) — fills root, runtime opacity
-        └─ LinearLayout (content_row)  — centered as a group, so the
-             │                            visible-content "block" stays
-             │                            symmetrically positioned
-             │                            whether the icon is shown or
-             │                            hidden
-             ├─ ImageView (btc_icon)   — orange logo
-             └─ LinearLayout (text_column)
-                  ├─ unit_label (e.g. "1 BTC")
-                  └─ price_text (e.g. "$ 81,282")
+        └─ LinearLayout (vertical, fills root)
+             ├─ LinearLayout (content_row, weight=1, centered horiz.)
+             │     ├─ ImageView (btc_icon)   — orange logo
+             │     └─ LinearLayout (text_column)
+             │          ├─ unit_label (e.g. "1 BTC")
+             │          └─ price_text (e.g. "$ 81,282")
+             └─ TextView (change_indicator) — small red/green % line,
+                                              GONE unless the user enabled
+                                              the indicator in settings
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -29,73 +29,100 @@
         android:src="@drawable/widget_background" />
 
     <!--
-        The content row is `wrap_content` and `layout_gravity=center`,
-        which means: whatever children we draw, the whole group sits in
-        the middle of the widget. Hiding the icon collapses its slot
-        and re-centers the remaining text column in place — no left
-        drift, no right drift.
+        Vertical column: content_row (weight=1) + change_indicator
+        (wrap_content). When the indicator is GONE, content_row gets
+        the full height — same look as before. When it's VISIBLE,
+        content_row shrinks slightly to make room.
     -->
     <LinearLayout
-        android:id="@+id/content_row"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="center"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="6dp">
-
-        <ImageView
-            android:id="@+id/btc_icon"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="@string/btc_icon_desc"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_bitcoin" />
+        android:orientation="vertical">
 
         <LinearLayout
-            android:id="@+id/text_column"
+            android:id="@+id/content_row"
             android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center_horizontal"
-            android:minWidth="120dp"
-            android:orientation="vertical">
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_gravity="center_horizontal"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="2dp">
 
-            <TextView
-                android:id="@+id/unit_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:alpha="0.7"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:textColor="@color/widget_text"
-                android:textSize="11sp"
-                tools:text="1 BTC" />
+            <ImageView
+                android:id="@+id/btc_icon"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/btc_icon_desc"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_bitcoin" />
 
-            <!--
-                price_text uses 0dp + weight=1 so it inherits a bounded
-                height from text_column (match_parent). Auto-sizing
-                needs that bound; with wrap_content it can't decide how
-                big to grow and just settles on something modest.
-            -->
-            <TextView
-                android:id="@+id/price_text"
+            <LinearLayout
+                android:id="@+id/text_column"
                 android:layout_width="wrap_content"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:autoSizeMaxTextSize="40sp"
-                android:autoSizeMinTextSize="14sp"
-                android:autoSizeStepGranularity="1sp"
-                android:autoSizeTextType="uniform"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
+                android:layout_height="match_parent"
+                android:gravity="center_horizontal"
                 android:minWidth="120dp"
-                android:textColor="@color/widget_text"
-                android:textStyle="bold"
-                tools:text="$ 81,282" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/unit_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.7"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text"
+                    android:textSize="11sp"
+                    tools:text="1 BTC" />
+
+                <!--
+                    price_text uses 0dp + weight=1 so it inherits a bounded
+                    height from text_column (match_parent). Auto-sizing
+                    needs that bound; with wrap_content it can't decide how
+                    big to grow and just settles on something modest.
+                -->
+                <TextView
+                    android:id="@+id/price_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:autoSizeMaxTextSize="40sp"
+                    android:autoSizeMinTextSize="14sp"
+                    android:autoSizeStepGranularity="1sp"
+                    android:autoSizeTextType="uniform"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:minWidth="120dp"
+                    android:textColor="@color/widget_text"
+                    android:textStyle="bold"
+                    tools:text="$ 81,282" />
+            </LinearLayout>
         </LinearLayout>
+
+        <!--
+            Optional red/green percentage-change line. The provider sets
+            text + textColor + visibility at runtime based on the user's
+            change-indicator preference.
+        -->
+        <TextView
+            android:id="@+id/change_indicator"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:gravity="center"
+            android:maxLines="1"
+            android:paddingHorizontal="12dp"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="+1.5% 24h"
+            tools:textColor="@color/change_up"
+            tools:visibility="visible" />
     </LinearLayout>
 </FrameLayout>

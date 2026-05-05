@@ -10,4 +10,8 @@
     <color name="widget_background_solid">#FFFFFFFF</color>
     <color name="widget_text">#FF1A1A1A</color>
     <color name="bitcoin_orange">#FFF7931A</color>
+
+    <!-- Change-indicator (red/green % line at the bottom of the widget). -->
+    <color name="change_up">#FF1B7F2E</color>
+    <color name="change_down">#FFC02828</color>
 </resources>

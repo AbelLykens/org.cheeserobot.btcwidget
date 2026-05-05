@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * Widget provider — orchestrates rendering and the network fetch.
@@ -149,10 +150,14 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             // "BTC" mode is a fun easter-egg — one Bitcoin always equals
             // one Bitcoin (×trackedAmount). Skip the network entirely.
+            // We deliberately persist null historical prices here so the
+            // change indicator naturally hides itself in BTC mode.
             if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
                 val text = PriceFormat.format(trackedAmount, showDecimals, separator)
                 WidgetPrefs.recordSuccess(
-                    context, appWidgetId, System.currentTimeMillis(), priceText = text
+                    context, appWidgetId, System.currentTimeMillis(),
+                    priceText = text, rawPrice = trackedAmount,
+                    oneDayAgo = null, oneWeekAgo = null,
                 )
                 val state = computeState(context, appWidgetId, hasFreshPrice = true)
                 appWidgetManager.updateAppWidget(
@@ -185,8 +190,19 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 is PriceResult.Success -> {
                     val displayed = result.price * trackedAmount
                     val text = PriceFormat.format(displayed, showDecimals, separator)
+                    // Scale the historical prices by the same trackedAmount
+                    // so the % change is computed on apples-to-apples
+                    // values. (The ratio is unaffected, but storing the
+                    // scaled value keeps "what we render is what we
+                    // computed from".)
+                    val scaledOneDay = result.priceOneDayAgo?.times(trackedAmount)
+                    val scaledOneWeek = result.priceOneWeekAgo?.times(trackedAmount)
                     WidgetPrefs.recordSuccess(
-                        context, appWidgetId, System.currentTimeMillis(), priceText = text
+                        context, appWidgetId, System.currentTimeMillis(),
+                        priceText = text,
+                        rawPrice = displayed,
+                        oneDayAgo = scaledOneDay,
+                        oneWeekAgo = scaledOneWeek,
                     )
                     val state = computeState(context, appWidgetId, hasFreshPrice = true)
                     appWidgetManager.updateAppWidget(
@@ -321,6 +337,9 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val opacity255 = (opacityPct.coerceIn(0, 100) * 255 / 100)
             views.setInt(R.id.background_view, "setImageAlpha", opacity255)
 
+            // Optional change indicator at the bottom (red/green % line).
+            renderChangeIndicator(context, views, appWidgetId, state)
+
             // Click target depends on state. When battery saver is ON we
             // launch a tiny activity that explains the situation.
             val pi = if (state == WidgetState.BATTERY_SAVER) {
@@ -330,6 +349,69 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             }
             views.setOnClickPendingIntent(R.id.widget_root, pi)
             return views
+        }
+
+        /**
+         * Set text + colour + visibility on the change indicator line.
+         *
+         * Hidden when:
+         *   • the user has the indicator turned OFF,
+         *   • we have no current price yet (never fetched), OR
+         *   • the upstream feed didn't include the requested historical
+         *     value (legacy feeds, or the user picked 1w but the feed
+         *     only ships 1d, etc.).
+         *
+         * Greyed states (battery saver / offline / stale) still show the
+         * indicator computed from the last-known values — keeping it
+         * visible matches what the rest of the widget does (cached
+         * price stays on screen).
+         */
+        private fun renderChangeIndicator(
+            context: Context,
+            views: RemoteViews,
+            appWidgetId: Int,
+            state: WidgetState,
+        ) {
+            val mode = WidgetPrefs.loadChangeIndicator(context, appWidgetId)
+            val current = WidgetPrefs.loadLastRawPrice(context, appWidgetId)
+            val historical = when (mode) {
+                WidgetPrefs.CHANGE_1D -> WidgetPrefs.loadLastOneDayAgo(context, appWidgetId)
+                WidgetPrefs.CHANGE_1W -> WidgetPrefs.loadLastOneWeekAgo(context, appWidgetId)
+                else -> null
+            }
+
+            if (mode == WidgetPrefs.CHANGE_OFF ||
+                current == null || !current.isFinite() ||
+                historical == null || !historical.isFinite() || historical == 0.0
+            ) {
+                views.setViewVisibility(R.id.change_indicator, View.GONE)
+                return
+            }
+
+            val pct = ((current - historical) / historical) * 100.0
+            val sign = if (pct >= 0) "+" else "" // negative numbers carry their own minus
+            val periodLabel = if (mode == WidgetPrefs.CHANGE_1W) "7d" else "24h"
+            val text = String.format(Locale.US, "%s%.1f%% %s", sign, pct, periodLabel)
+
+            val colorRes = if (pct >= 0) R.color.change_up else R.color.change_down
+            // setTextColor on RemoteViews requires a resolved int colour
+            // (not a colour-resource id) on older API levels; using
+            // getColor() works uniformly on minSdk 26+.
+            val color = context.getColor(colorRes)
+
+            // In greyed states, dim the indicator so it doesn't visually
+            // shout while the rest of the widget is muted.
+            val alpha = if (state == WidgetState.NORMAL) 1.0f else 0.6f
+            views.setTextViewText(R.id.change_indicator, text)
+            views.setTextColor(R.id.change_indicator, applyAlpha(color, alpha))
+            views.setViewVisibility(R.id.change_indicator, View.VISIBLE)
+        }
+
+        /** Multiply the alpha channel of an ARGB colour by [factor]. */
+        private fun applyAlpha(color: Int, factor: Float): Int {
+            val a = ((color ushr 24) and 0xFF)
+            val newA = (a * factor.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+            return (newA shl 24) or (color and 0x00FFFFFF)
         }
 
         private fun formatUnitLabel(amount: Double): String {

@@ -5,4 +5,8 @@
     <color name="widget_background_solid">#FF202124</color>
     <color name="widget_text">#FFEDEDED</color>
     <color name="bitcoin_orange">#FFF7931A</color>
+
+    <!-- Slightly brighter green/red for legibility on dark backgrounds. -->
+    <color name="change_up">#FF4CD964</color>
+    <color name="change_down">#FFFF6B6B</color>
 </resources>
