@@ -4,36 +4,49 @@ import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
+import java.util.Locale
 
 /**
  * Shown:
- *   • automatically the first time a widget is added to the home screen, and
- *   • again whenever the user taps the pencil icon while moving the widget
- *     (Android 12+ — enabled via `widgetFeatures="reconfigurable"`).
+ *   - automatically the first time a widget is added to the home screen, and
+ *   - again whenever the user taps the pencil icon while moving the widget
+ *     (Android 12+ - enabled via `widgetFeatures="reconfigurable"`).
  *
  * Two-tier UI:
- *   • Simple — currency picker only, on the assumption that most people
- *     just want USD or EUR and don't care about formatting.
- *   • Advanced — collapsed by default, expanded with a single tap.
- *     Houses tracked amount, number formatting, opacity, display
- *     toggles, and the new red/green change indicator. Auto-expands on
- *     the reconfigure path when any advanced setting is non-default, so
- *     the user immediately sees what's already customised.
+ *   - Simple: currency picker only, on the assumption that most people just
+ *     want USD or EUR and don't care about formatting.
+ *   - Advanced: collapsed by default. Houses tracked amount, number
+ *     formatting, opacity, display toggles, and the red/green change
+ *     indicator. Auto-expands on reconfigure when ANY advanced setting is
+ *     non-default.
  *
- * Fetch errors are surfaced inside the launcher activity, so this
- * screen no longer asks for the POST_NOTIFICATIONS permission.
+ * A live preview at the top sits on a checkered grey background so the
+ * user can see how their opacity choice will read against home-screen
+ * wallpaper. Every setting change updates the preview in place.
  */
 class WidgetConfigActivity : Activity() {
 
@@ -63,6 +76,14 @@ class WidgetConfigActivity : Activity() {
     private lateinit var rbChange1d: RadioButton
     private lateinit var rbChange1w: RadioButton
 
+    // Preview views (looked up inside preview_container)
+    private lateinit var previewContainer: FrameLayout
+    private lateinit var previewBackground: ImageView
+    private lateinit var previewIcon: ImageView
+    private lateinit var previewUnit: TextView
+    private lateinit var previewPrice: TextView
+    private lateinit var previewChange: TextView
+
     /** Mirrors the order of `R.array.config_separator_options`. */
     private val separatorKeys = listOf(
         WidgetPrefs.SEPARATOR_AUTO,
@@ -74,12 +95,7 @@ class WidgetConfigActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // If the user backs out, the widget should NOT be added. (For a
-        // reconfigure flow, RESULT_CANCELED leaves the widget unchanged,
-        // which is also the correct fallback.)
         setResult(Activity.RESULT_CANCELED)
-
         setContentView(R.layout.activity_widget_config)
 
         appWidgetId = intent?.extras?.getInt(
@@ -93,16 +109,18 @@ class WidgetConfigActivity : Activity() {
         }
 
         // We treat "prefs already exist" as the signal that this is a
-        // reconfigure rather than a fresh add. That way we work on every
-        // Android version even though only 12+ exposes the pencil icon.
+        // reconfigure rather than a fresh add.
         isReconfigure = WidgetPrefs.hasCurrency(this, appWidgetId)
 
         bindViews()
         wireSeparatorAdapter()
+        installCheckerBackground()
         loadInitialState()
         wireSeekBar()
         wireAdvancedToggle()
+        wirePreviewListeners()
         showVersionFooter()
+        updatePreview()
 
         findViewById<Button>(R.id.btn_save).setOnClickListener { persistAndFinish() }
         findViewById<Button>(R.id.btn_cancel).setOnClickListener { finish() }
@@ -128,11 +146,16 @@ class WidgetConfigActivity : Activity() {
         rbChangeOff = findViewById(R.id.rb_change_off)
         rbChange1d = findViewById(R.id.rb_change_1d)
         rbChange1w = findViewById(R.id.rb_change_1w)
+
+        previewContainer = findViewById(R.id.preview_container)
+        previewBackground = previewContainer.findViewById(R.id.background_view)
+        previewIcon = previewContainer.findViewById(R.id.btc_icon)
+        previewUnit = previewContainer.findViewById(R.id.unit_label)
+        previewPrice = previewContainer.findViewById(R.id.price_text)
+        previewChange = previewContainer.findViewById(R.id.change_indicator)
     }
 
     private fun wireSeparatorAdapter() {
-        // Plain framework Spinner with a stock array adapter — no
-        // appcompat/material dependency required.
         val adapter = ArrayAdapter.createFromResource(
             this,
             R.array.config_separator_options,
@@ -142,9 +165,39 @@ class WidgetConfigActivity : Activity() {
         spSeparator.adapter = adapter
     }
 
+    /**
+     * Generate a small checkered tile and use it as the preview's
+     * background so the opacity slider has a visible effect even when
+     * the screen sits on a flat colour.
+     */
+    private fun installCheckerBackground() {
+        previewContainer.background = makeCheckerDrawable()
+    }
+
+    private fun makeCheckerDrawable(): Drawable {
+        val density = resources.displayMetrics.density
+        val tile = (8 * density).toInt().coerceAtLeast(2)
+        val bmp = Bitmap.createBitmap(tile * 2, tile * 2, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val light = if (isDark) 0xFF3A3A3A.toInt() else 0xFFE8E8E8.toInt()
+        val dark = if (isDark) 0xFF2C2C2C.toInt() else 0xFFCFCFCF.toInt()
+        val paint = Paint().apply { color = light }
+        canvas.drawRect(0f, 0f, (tile * 2).toFloat(), (tile * 2).toFloat(), paint)
+        paint.color = dark
+        canvas.drawRect(0f, 0f, tile.toFloat(), tile.toFloat(), paint)
+        canvas.drawRect(
+            tile.toFloat(), tile.toFloat(),
+            (tile * 2).toFloat(), (tile * 2).toFloat(), paint
+        )
+        val bd = BitmapDrawable(resources, bmp)
+        bd.tileModeX = Shader.TileMode.REPEAT
+        bd.tileModeY = Shader.TileMode.REPEAT
+        return bd
+    }
+
     private fun loadInitialState() {
-        // Subtitle reflects mode so the user knows whether they're editing
-        // existing settings or configuring something fresh.
         findViewById<TextView>(R.id.subtitle_text).setText(
             if (isReconfigure) R.string.config_reconfigure_subtitle
             else R.string.config_subtitle
@@ -179,16 +232,14 @@ class WidgetConfigActivity : Activity() {
             else -> rbChangeOff.isChecked = true
         }
 
-        // Auto-expand advanced when any advanced field is non-default,
-        // so users tapping the pencil icon see their existing tweaks
-        // without an extra click.
-        if (hasNonDefaultAdvanced()) setAdvancedExpanded(true)
+        // Auto-expand advanced when any advanced field is non-default.
+        // Only relevant for reconfigure; fresh widgets have no prefs and
+        // every setting reads as default.
+        if (isReconfigure && hasNonDefaultAdvanced()) {
+            setAdvancedExpanded(true)
+        }
     }
 
-    /**
-     * True when at least one advanced setting deviates from its default,
-     * which makes "Advanced" worth opening on entry for reconfigure.
-     */
     private fun hasNonDefaultAdvanced(): Boolean {
         if (WidgetPrefs.loadTrackedAmount(this, appWidgetId) != WidgetPrefs.DEFAULT_TRACKED_AMOUNT) return true
         if (WidgetPrefs.loadShowDecimals(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_DECIMALS) return true
@@ -204,6 +255,7 @@ class WidgetConfigActivity : Activity() {
         sbOpacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
                 opacityValue.text = getString(R.string.config_opacity_value, p)
+                updatePreview()
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
@@ -224,10 +276,105 @@ class WidgetConfigActivity : Activity() {
         )
     }
 
+    private fun wirePreviewListeners() {
+        rgCurrency.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        rgChange.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbShowDecimals.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbHideLogo.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbHideUnitLabel.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        spSeparator.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                updatePreview()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        etTrackedAmount.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) { updatePreview() }
+        })
+    }
+
     /**
-     * Display the app version at the bottom of the screen — handy for
-     * users reporting issues and for confirming an update has installed.
+     * Render the preview from the current UI state (not from saved
+     * prefs). Uses sample current/historical prices so the change
+     * indicator can show plausible values before any real fetch.
      */
+    private fun updatePreview() {
+        val currency = selectedCurrency()
+        val tracked = parsedTrackedAmount()
+        val showDecimals = cbShowDecimals.isChecked
+        val separator = selectedSeparator()
+        val hideLogo = cbHideLogo.isChecked
+        val hideUnit = cbHideUnitLabel.isChecked
+        val changeMode = selectedChangeIndicator()
+        val opacity = sbOpacity.progress.coerceIn(0, 100)
+
+        val (samplePrice, sampleOneDay, sampleOneWeek) = sampleData(currency)
+        val displayed = samplePrice * tracked
+        val priceText = PriceFormat.format(displayed, showDecimals, separator)
+        val symbol = WidgetPrefs.symbolFor(currency)
+        previewPrice.text = "$symbol $priceText"
+
+        previewIcon.visibility = if (hideLogo) View.GONE else View.VISIBLE
+
+        if (hideUnit) {
+            previewUnit.visibility = View.GONE
+        } else {
+            previewUnit.visibility = View.VISIBLE
+            previewUnit.text = formatUnitLabel(tracked)
+        }
+
+        previewBackground.imageAlpha = (opacity * 255 / 100)
+
+        val historical: Double? = when (changeMode) {
+            WidgetPrefs.CHANGE_1D -> sampleOneDay
+            WidgetPrefs.CHANGE_1W -> sampleOneWeek
+            else -> null
+        }
+        if (changeMode == WidgetPrefs.CHANGE_OFF || historical == null) {
+            previewChange.visibility = View.GONE
+        } else {
+            // Scale by trackedAmount so the preview matches what the
+            // widget will actually render.
+            val scaledHistorical = historical * tracked
+            val pct = if (scaledHistorical == 0.0) 0.0
+            else ((displayed - scaledHistorical) / scaledHistorical) * 100.0
+            val sign = if (pct >= 0) "+" else ""
+            val periodLabel = if (changeMode == WidgetPrefs.CHANGE_1W) "7d" else "24h"
+            previewChange.text = String.format(
+                Locale.US, "%s%.1f%% %s", sign, pct, periodLabel
+            )
+            val colorRes = if (pct >= 0) R.color.change_up else R.color.change_down
+            previewChange.setTextColor(getColor(colorRes))
+            previewChange.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * Plausible sample values for each currency, used solely to drive
+     * the live preview before any real network fetch has populated
+     * cached values.
+     */
+    private fun sampleData(currency: String): Triple<Double, Double?, Double?> {
+        return when (currency) {
+            WidgetPrefs.CURRENCY_EUR -> Triple(69498.08, 68717.13, 65033.52)
+            WidgetPrefs.CURRENCY_BTC -> Triple(1.0, null, null)
+            else -> Triple(81324.99, 80325.00, 76177.99)
+        }
+    }
+
+    private fun formatUnitLabel(amount: Double): String {
+        val rendered = if (amount == amount.toLong().toDouble()) {
+            amount.toLong().toString()
+        } else {
+            val s = String.format(Locale.US, "%.8f", amount)
+                .trimEnd('0').trimEnd('.')
+            if (s.isEmpty()) "0" else s
+        }
+        return "$rendered BTC"
+    }
+
     private fun showVersionFooter() {
         val footer = findViewById<TextView>(R.id.version_footer) ?: return
         val versionName = try {
@@ -248,8 +395,6 @@ class WidgetConfigActivity : Activity() {
     private fun parsedTrackedAmount(): Double {
         val raw = etTrackedAmount.text?.toString()?.trim().orEmpty()
         if (raw.isEmpty()) return WidgetPrefs.DEFAULT_TRACKED_AMOUNT
-        // Accept both "." and "," as the decimal separator — different
-        // soft keyboards emit different characters.
         val normalised = raw.replace(',', '.')
         val parsed = normalised.toDoubleOrNull() ?: return WidgetPrefs.DEFAULT_TRACKED_AMOUNT
         return if (parsed.isFinite() && parsed >= 0) parsed
@@ -257,14 +402,10 @@ class WidgetConfigActivity : Activity() {
     }
 
     private fun formatAmountForEdit(amount: Double): String {
-        // Render whole numbers without a decimal so the user sees "1"
-        // not "1.0", but preserve fractional precision otherwise.
         return if (amount == amount.toLong().toDouble()) {
             amount.toLong().toString()
         } else {
-            // Up to 8 significant decimal places with trailing zeros
-            // stripped (BTC has 8 satoshis of precision).
-            String.format(java.util.Locale.US, "%.8f", amount)
+            String.format(Locale.US, "%.8f", amount)
                 .trimEnd('0').trimEnd('.')
         }
     }

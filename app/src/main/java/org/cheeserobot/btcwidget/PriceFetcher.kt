@@ -8,24 +8,23 @@ import java.net.URL
 import java.util.Locale
 
 /**
- * Fetches the latest BTC price JSON from cheeserobot.org and extracts the
- * value for the requested currency, plus optional historical values
- * (1 day ago and 1 week ago).
+ * Fetches the latest BTC price JSON from cheeserobot.org and extracts
+ * the value for the requested currency, plus optional historical
+ * values (1 day ago and 1 week ago).
  *
  * The current upstream shape is:
  *   {
  *     "when": "...", "when_unix": "...", "source": "...",
  *     "price_usd": "81324.99", "price_eur": "69498.08",
- *     "price_1d_ago_usd": "80325.00", "price_1d_ago_eur": "68717.13",
- *     "price_1w_ago_usd": "76177.99", "price_1w_ago_eur": "65033.52"
+ *     "price_1d_ago_usd": "...", "price_1d_ago_eur": "...",
+ *     "price_1w_ago_usd": "...", "price_1w_ago_eur": "..."
  *   }
  *
- * Returns a [PriceResult] so callers can distinguish *why* a fetch failed:
- * network, HTTP status, JSON shape, or missing currency key.
+ * Returns a [PriceResult] so callers can distinguish *why* a fetch
+ * failed: network, HTTP status, JSON shape, or missing currency key.
  *
- * The response format isn't strictly documented, so we search recursively
- * for the requested currency key (case-insensitive) and tokenise keys to
- * keep us robust against variants like:
+ * The response format isn't strictly documented, so we tokenise keys
+ * and search recursively, which keeps us robust against variants like:
  *   {"usd": 65000, "eur": 60000}
  *   {"USD": 65000, "EUR": 60000}
  *   {"prices": {"usd": 65000, "eur": 60000}}
@@ -33,12 +32,6 @@ import java.util.Locale
  *   {"price_usd": "65000", "price_1d_ago_usd": "64000", ...}
  */
 sealed class PriceResult {
-    /**
-     * Successful fetch. [price] is always populated; [priceOneDayAgo] and
-     * [priceOneWeekAgo] are populated only if the upstream JSON exposes
-     * them (older feeds that just have today's price still parse fine,
-     * with the historical fields left null).
-     */
     data class Success(
         val price: Double,
         val priceOneDayAgo: Double? = null,
@@ -60,23 +53,52 @@ object PriceFetcher {
     internal const val PERIOD_1W = "1w"
 
     /**
-     * Fetches and returns the price (and historical prices when present).
-     * MUST be called off the main thread.
+     * Single-currency convenience. Delegates to [fetchPrices] so the
+     * parsing path stays uniform between single- and multi-currency
+     * callers. MUST be called off the main thread.
      */
     fun fetchPrice(currency: String): PriceResult {
+        return fetchPrices(listOf(currency))[currency]
+            ?: PriceResult.Error("No result for \"$currency\"")
+    }
+
+    /**
+     * Fetch the JSON once and parse a [PriceResult] for each requested
+     * currency. The HTTP round-trip is shared, so updating N widgets
+     * across <=2 currencies still costs only one network call.
+     *
+     * Failure semantics:
+     *   - A network/HTTP/JSON error propagates as the same Error to
+     *     every entry; there's no useful partial result when the fetch
+     *     itself failed.
+     *   - Per-currency lookup misses (e.g. asking for "GBP" when the
+     *     feed only has USD/EUR) return an Error for that key only,
+     *     while the other currencies report Success normally.
+     *
+     * MUST be called off the main thread.
+     */
+    fun fetchPrices(currencies: Collection<String>): Map<String, PriceResult> {
+        if (currencies.isEmpty()) return emptyMap()
+        // De-dupe by uppercased form but preserve original capitalisation
+        // in the result keys so callers can look up by their stored
+        // "USD" / "EUR" without worrying about case.
+        val unique = currencies.distinctBy { it.uppercase(Locale.ROOT) }
+
         val raw = try {
             fetchRaw()
         } catch (t: Throwable) {
             Log.w(TAG, "Network fetch failed", t)
-            return PriceResult.Error(
+            val err = PriceResult.Error(
                 "Network: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
                 t
             )
+            return unique.associateWith { err }
         }
 
         if (raw is FetchOutcome.HttpError) {
             Log.w(TAG, "HTTP ${raw.code}: ${raw.snippet}")
-            return PriceResult.Error("HTTP ${raw.code}: ${raw.snippet}")
+            val err = PriceResult.Error("HTTP ${raw.code}: ${raw.snippet}")
+            return unique.associateWith { err }
         }
         val body = (raw as FetchOutcome.Body).text
 
@@ -85,21 +107,24 @@ object PriceFetcher {
         } catch (t: Throwable) {
             val snippet = body.take(SNIPPET_MAX).replace('\n', ' ')
             Log.w(TAG, "JSON parse failed; body starts with: $snippet", t)
-            return PriceResult.Error("Bad JSON: $snippet", t)
+            val err = PriceResult.Error("Bad JSON: $snippet", t)
+            return unique.associateWith { err }
         }
 
-        val needle = currency.lowercase(Locale.ROOT)
-        val price = findCurrency(json, needle)
-        return if (price != null) {
-            // Historical values are best-effort — older feeds may not
-            // expose them. A null result here just means "no indicator".
-            val oneDay = findHistorical(json, needle, PERIOD_1D)
-            val oneWeek = findHistorical(json, needle, PERIOD_1W)
-            PriceResult.Success(price, oneDay, oneWeek)
-        } else {
-            val keys = topKeys(json)
-            Log.w(TAG, "Currency $currency not found. Top-level keys: $keys")
-            PriceResult.Error("No \"$currency\" in JSON. Keys: $keys")
+        return unique.associateWith { ccy ->
+            val needle = ccy.lowercase(Locale.ROOT)
+            val price = findCurrency(json, needle)
+            if (price != null) {
+                PriceResult.Success(
+                    price,
+                    findHistorical(json, needle, PERIOD_1D),
+                    findHistorical(json, needle, PERIOD_1W),
+                )
+            } else {
+                val keys = topKeys(json)
+                Log.w(TAG, "Currency $ccy not found. Top-level keys: $keys")
+                PriceResult.Error("No \"$ccy\" in JSON. Keys: $keys")
+            }
         }
     }
 
@@ -137,12 +162,9 @@ object PriceFetcher {
     }
 
     /**
-     * Find the *current* price for [currency]. Excludes keys whose tokens
-     * include "ago" — those carry historical values like
-     * "price_1d_ago_usd" and would otherwise shadow today's price.
-     *
-     * Exposed as `internal` so it can be exercised from unit tests
-     * without making a network call.
+     * Find the *current* price for [currency]. Excludes keys whose
+     * tokens include "ago" so that "price_1d_ago_usd" can never shadow
+     * today's "price_usd".
      */
     internal fun findCurrency(node: Any?, currency: String): Double? {
         val needle = currency.lowercase(Locale.ROOT)
@@ -154,9 +176,7 @@ object PriceFetcher {
     /**
      * Find a historical price for [currency] [period] ago. [period] is
      * one of [PERIOD_1D] ("1d") or [PERIOD_1W] ("1w"). Looks for a key
-     * whose tokens contain the currency, the period token, and the
-     * literal token "ago".
-     *
+     * whose tokens contain the currency, the period token, and "ago".
      * Returns null when the upstream JSON doesn't expose a matching key.
      */
     internal fun findHistorical(node: Any?, currency: String, period: String): Double? {
@@ -198,13 +218,13 @@ object PriceFetcher {
 
     /**
      * Tokenise a key into a lower-cased set of tokens. Splits on any
-     * non-alphanumeric character and on lower→upper case transitions:
+     * non-alphanumeric character and on lower->upper case transitions:
      *
-     *   "price_1d_ago_usd" → {"price","1d","ago","usd"}
-     *   "priceUsd"         → {"price","usd"}
-     *   "USD"              → {"usd"}
-     *   "PRICE_USD"        → {"price","usd"}
-     *   "audusd"           → {"audusd"}    (no false positive for "usd")
+     *   "price_1d_ago_usd" -> {"price","1d","ago","usd"}
+     *   "priceUsd"         -> {"price","usd"}
+     *   "USD"              -> {"usd"}
+     *   "PRICE_USD"        -> {"price","usd"}
+     *   "audusd"           -> {"audusd"}    (no false positive for "usd")
      */
     internal fun tokens(key: String): Set<String> {
         val out = mutableSetOf<String>()

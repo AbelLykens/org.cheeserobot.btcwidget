@@ -5,14 +5,18 @@
       FrameLayout (widget_root, transparent)
         ├─ ImageView (background_view) — fills root, runtime opacity
         └─ LinearLayout (vertical, fills root)
-             ├─ LinearLayout (content_row, weight=1, centered horiz.)
-             │     ├─ ImageView (btc_icon)   — orange logo
-             │     └─ LinearLayout (text_column)
-             │          ├─ unit_label (e.g. "1 BTC")
-             │          └─ price_text (e.g. "$ 81,282")
-             └─ TextView (change_indicator) — small red/green % line,
-                                              GONE unless the user enabled
-                                              the indicator in settings
+             ├─ TextView (unit_label)        — small "1 BTC" caption
+             ├─ LinearLayout (content_row)   — icon + price, weight=1
+             │     ├─ ImageView (btc_icon)
+             │     └─ TextView (price_text)  — auto-sized
+             └─ TextView (change_indicator)  — small red/green % line
+
+    Why unit_label is a SIBLING of content_row (not nested next to
+    price_text in a column): putting it as a sibling above lets the
+    inner horizontal row centre the bitcoin glyph and the price number
+    on the same vertical axis. With a vertical column wrapping the
+    text only, the icon's centre would land *between* the unit caption
+    and the price number rather than next to the number itself.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -28,17 +32,31 @@
         android:scaleType="fitXY"
         android:src="@drawable/widget_background" />
 
-    <!--
-        Vertical column: content_row (weight=1) + change_indicator
-        (wrap_content). When the indicator is GONE, content_row gets
-        the full height — same look as before. When it's VISIBLE,
-        content_row shrinks slightly to make room.
-    -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
 
+        <!-- "1 BTC" caption above the icon+price row. -->
+        <TextView
+            android:id="@+id/unit_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alpha="0.7"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="4dp"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp"
+            tools:text="1 BTC" />
+
+        <!--
+            content_row centres icon and price_text on the same vertical
+            line. content_row itself has weight=1 so it eats whatever
+            vertical space is left after unit_label and change_indicator.
+        -->
         <LinearLayout
             android:id="@+id/content_row"
             android:layout_width="wrap_content"
@@ -47,9 +65,7 @@
             android:layout_gravity="center_horizontal"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="2dp">
+            android:paddingHorizontal="12dp">
 
             <ImageView
                 android:id="@+id/btc_icon"
@@ -60,49 +76,28 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_bitcoin" />
 
-            <LinearLayout
-                android:id="@+id/text_column"
+            <!--
+                price_text uses height=match_parent so auto-sizing has a
+                bounded vertical extent (the row height that the outer
+                weighted layout has resolved). minWidth gives it a sane
+                horizontal floor so very short numbers don't shrink to
+                nothing.
+            -->
+            <TextView
+                android:id="@+id/price_text"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
-                android:gravity="center_horizontal"
+                android:autoSizeMaxTextSize="40sp"
+                android:autoSizeMinTextSize="14sp"
+                android:autoSizeStepGranularity="1sp"
+                android:autoSizeTextType="uniform"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="1"
                 android:minWidth="120dp"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/unit_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:alpha="0.7"
-                    android:ellipsize="end"
-                    android:gravity="center"
-                    android:maxLines="1"
-                    android:textColor="@color/widget_text"
-                    android:textSize="11sp"
-                    tools:text="1 BTC" />
-
-                <!--
-                    price_text uses 0dp + weight=1 so it inherits a bounded
-                    height from text_column (match_parent). Auto-sizing
-                    needs that bound; with wrap_content it can't decide how
-                    big to grow and just settles on something modest.
-                -->
-                <TextView
-                    android:id="@+id/price_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:autoSizeMaxTextSize="40sp"
-                    android:autoSizeMinTextSize="14sp"
-                    android:autoSizeStepGranularity="1sp"
-                    android:autoSizeTextType="uniform"
-                    android:ellipsize="end"
-                    android:gravity="center"
-                    android:maxLines="1"
-                    android:minWidth="120dp"
-                    android:textColor="@color/widget_text"
-                    android:textStyle="bold"
-                    tools:text="$ 81,282" />
-            </LinearLayout>
+                android:textColor="@color/widget_text"
+                android:textStyle="bold"
+                tools:text="$ 81,282" />
         </LinearLayout>
 
         <!--
@@ -114,10 +109,10 @@
             android:id="@+id/change_indicator"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
             android:gravity="center"
             android:maxLines="1"
             android:paddingHorizontal="12dp"
+            android:paddingBottom="4dp"
             android:textSize="11sp"
             android:textStyle="bold"
             android:visibility="gone"

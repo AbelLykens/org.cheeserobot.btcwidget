@@ -18,30 +18,35 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Widget provider — orchestrates rendering and the network fetch.
+ * Widget provider - orchestrates rendering and the network fetch.
  *
- * Lifecycle hooks we override:
- *   • onUpdate   — system tells us to refresh one or more widgets.
- *   • onReceive  — also handles ACTION_REFRESH (user tap on widget when
- *                  battery saver is OFF, or a refresh broadcast from
- *                  another component such as BatterySaverInfoActivity
- *                  after the user disables battery saver).
- *   • onDeleted  — clean up per-widget prefs.
+ * Lifecycle hooks:
+ *   - onUpdate   - system tells us to refresh one or more widgets.
+ *   - onReceive  - also handles ACTION_REFRESH (user tap on widget,
+ *                  or a refresh broadcast from another component such
+ *                  as BatterySaverInfoActivity).
+ *   - onDeleted  - clean up per-widget prefs.
+ *
+ * Refresh-all + batched fetch:
+ *   The cheeserobot.org feed returns USD and EUR (plus all historical
+ *   variants) in a single JSON. So a tap on ANY widget triggers a
+ *   refresh of every widget on the device, sharing one HTTP round-trip
+ *   across all of them. This keeps multi-widget setups in sync and
+ *   avoids redundant network calls.
+ *
+ * 15-second rate limit:
+ *   User-triggered refreshes (taps, "Refresh existing widgets" button)
+ *   skip the network if there was a network attempt within the last
+ *   [MIN_USER_REFRESH_INTERVAL_MS] ms. A rate-limited tap still
+ *   repaints from cache so it feels responsive. The system-scheduled
+ *   update (every 30 min) and the settings-save path bypass this check.
  *
  * When battery saver is ON, the widget's tap target is rewired to
  * launch [BatterySaverInfoActivity] instead of broadcasting
- * ACTION_REFRESH — Toasts from a BroadcastReceiver context are
+ * ACTION_REFRESH - Toasts from a BroadcastReceiver context are
  * suppressed by Android when the user has notifications disabled, so
  * an Activity is the only reliable way to surface "the widget can't
  * update right now".
- *
- * Note: we cannot listen for ACTION_POWER_SAVE_MODE_CHANGED from a
- * manifest receiver — Android sends that broadcast with
- * FLAG_RECEIVER_REGISTERED_ONLY. Live detection happens inside
- * BatterySaverInfoActivity (via a dynamically registered receiver) so
- * that turning battery saver off from the system dialog flips the
- * widget back to colour immediately. Other transitions are picked up
- * on the next scheduled refresh.
  */
 class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
@@ -50,12 +55,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        if (appWidgetIds.isEmpty()) return
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                for (id in appWidgetIds) {
-                    refreshWidgetSync(context, appWidgetManager, id)
-                }
+                refreshWidgets(context, appWidgetManager, appWidgetIds)
             } finally {
                 pendingResult.finish()
             }
@@ -64,7 +68,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
-            handleRefreshAction(context, intent)
+            handleRefreshAction(context)
             return
         }
         super.onReceive(context, intent)
@@ -76,16 +80,27 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    private fun handleRefreshAction(context: Context, intent: Intent) {
+    /**
+     * Tap-to-refresh entry point. Always operates on every placed
+     * widget (single shared backend, single shared fetch) and applies
+     * a 15-second rate-limit so a user tapping rapidly doesn't spam
+     * the network.
+     */
+    private fun handleRefreshAction(context: Context) {
         val mgr = AppWidgetManager.getInstance(context)
-        val ids = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
-            ?: mgr.getAppWidgetIds(
-                ComponentName(context, BitcoinPriceWidgetProvider::class.java)
-            )
+        val ids = mgr.getAppWidgetIds(
+            ComponentName(context, BitcoinPriceWidgetProvider::class.java)
+        )
+        if (ids.isEmpty()) return
 
         if (isPowerSaveOn(context)) {
-            // Don't burn battery when the user explicitly asked the OS
-            // to conserve it. Repaint everything in greyed-out state.
+            for (id in ids) paintFromCache(context, mgr, id)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val lastAttempt = WidgetPrefs.loadLastNetworkAt(context)
+        if (lastAttempt > 0 && (now - lastAttempt) < MIN_USER_REFRESH_INTERVAL_MS) {
             for (id in ids) paintFromCache(context, mgr, id)
             return
         }
@@ -93,7 +108,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                for (id in ids) refreshWidgetSync(context, mgr, id)
+                refreshWidgets(context, mgr, ids)
             } finally {
                 pendingResult.finish()
             }
@@ -101,9 +116,8 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
     }
 
     /**
-     * Paint the widget from saved state without making any network call.
-     * Used when battery saver kicks in, so the icon's tint and click
-     * target flip promptly.
+     * Paint a widget from saved state without making any network call.
+     * Used when battery saver kicks in or a refresh tap is rate-limited.
      */
     private fun paintFromCache(
         context: Context,
@@ -123,89 +137,105 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         private const val ICON_ALPHA_GREY = 90
 
         /**
-         * Visual states the widget can be in. Drives icon tint/alpha and
-         * which click action is wired to the root view.
+         * Minimum gap between user-triggered network fetches. Tapping a
+         * widget more often than this just repaints from cache.
          */
+        private const val MIN_USER_REFRESH_INTERVAL_MS = 15_000L
+
         private enum class WidgetState {
-            NORMAL,           // fresh price, normal colour
-            BATTERY_SAVER,    // power-save mode active; greyed
-            OFFLINE,          // no network connectivity; greyed
-            STALE,            // ≥2 consecutive fetch failures; greyed
+            NORMAL,
+            BATTERY_SAVER,
+            OFFLINE,
+            STALE,
         }
 
         /**
-         * Synchronously refresh a single widget: paint a "loading" frame,
-         * fetch the price (with one retry), then paint the result.
-         * Call from a background dispatcher.
+         * Refresh a batch of widgets with a shared network fetch.
+         *
+         * - BTC-mode widgets are painted directly (no network).
+         * - Network widgets get a "loading" frame, then a single fetch
+         *   covers every distinct currency, then each widget renders
+         *   from its currency's slot in the result map.
          */
-        private fun refreshWidgetSync(
+        private fun refreshWidgets(
             context: Context,
-            appWidgetManager: AppWidgetManager,
-            appWidgetId: Int
+            mgr: AppWidgetManager,
+            ids: IntArray,
+        ) {
+            if (ids.isEmpty()) return
+
+            val networkIds = mutableListOf<Int>()
+            for (id in ids) {
+                val ccy = WidgetPrefs.loadCurrency(context, id)
+                if (ccy.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
+                    renderBtcWidget(context, mgr, id)
+                } else {
+                    networkIds.add(id)
+                }
+            }
+            if (networkIds.isEmpty()) return
+
+            if (!hasNetwork(context)) {
+                for (id in networkIds) {
+                    WidgetPrefs.recordFailure(context, id, reason = "No network")
+                    val cached = WidgetPrefs.loadLastPriceText(context, id) ?: "—"
+                    mgr.updateAppWidget(
+                        id, buildViews(context, cached, id, WidgetState.OFFLINE)
+                    )
+                }
+                return
+            }
+
+            for (id in networkIds) {
+                val loadingState = computeState(context, id, hasFreshPrice = false)
+                mgr.updateAppWidget(
+                    id, buildViews(context, "…", id, loadingState)
+                )
+            }
+
+            val currencies = networkIds
+                .map { WidgetPrefs.loadCurrency(context, it) }
+                .toSet()
+
+            // Mark the attempt up-front so a second tap arriving while
+            // we're still on the wire sees the rate limit and bails.
+            WidgetPrefs.markNetworkAttempt(context)
+
+            val results = fetchPricesWithRetry(currencies)
+
+            for (id in networkIds) {
+                renderResult(context, mgr, id, results)
+            }
+        }
+
+        /** Paint a single network-backed widget from a shared result map. */
+        private fun renderResult(
+            context: Context,
+            mgr: AppWidgetManager,
+            appWidgetId: Int,
+            results: Map<String, PriceResult>,
         ) {
             val currency = WidgetPrefs.loadCurrency(context, appWidgetId)
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
             val showDecimals = WidgetPrefs.loadShowDecimals(context, appWidgetId)
             val separator = WidgetPrefs.loadSeparator(context, appWidgetId)
 
-            // "BTC" mode is a fun easter-egg — one Bitcoin always equals
-            // one Bitcoin (×trackedAmount). Skip the network entirely.
-            // We deliberately persist null historical prices here so the
-            // change indicator naturally hides itself in BTC mode.
-            if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
-                val text = PriceFormat.format(trackedAmount, showDecimals, separator)
-                WidgetPrefs.recordSuccess(
-                    context, appWidgetId, System.currentTimeMillis(),
-                    priceText = text, rawPrice = trackedAmount,
-                    oneDayAgo = null, oneWeekAgo = null,
-                )
-                val state = computeState(context, appWidgetId, hasFreshPrice = true)
-                appWidgetManager.updateAppWidget(
-                    appWidgetId, buildViews(context, text, appWidgetId, state)
-                )
-                return
-            }
+            val result = results[currency]
+                ?: PriceResult.Error("No result for \"$currency\"")
 
-            // No network → don't waste a retry on a guaranteed failure.
-            // Show last-known price (if any) in greyed-out OFFLINE state.
-            if (!hasNetwork(context)) {
-                WidgetPrefs.recordFailure(context, appWidgetId, reason = "No network")
-                val cached = WidgetPrefs.loadLastPriceText(context, appWidgetId) ?: "—"
-                appWidgetManager.updateAppWidget(
-                    appWidgetId,
-                    buildViews(context, cached, appWidgetId, WidgetState.OFFLINE)
-                )
-                return
-            }
-
-            // Loading frame — preserve previous visual state otherwise
-            // the icon flickers from grey→orange→grey on every tap.
-            val loadingState = computeState(context, appWidgetId, hasFreshPrice = false)
-            appWidgetManager.updateAppWidget(
-                appWidgetId, buildViews(context, "…", appWidgetId, loadingState)
-            )
-
-            val result = fetchWithRetry(currency)
             when (result) {
                 is PriceResult.Success -> {
                     val displayed = result.price * trackedAmount
                     val text = PriceFormat.format(displayed, showDecimals, separator)
-                    // Scale the historical prices by the same trackedAmount
-                    // so the % change is computed on apples-to-apples
-                    // values. (The ratio is unaffected, but storing the
-                    // scaled value keeps "what we render is what we
-                    // computed from".)
-                    val scaledOneDay = result.priceOneDayAgo?.times(trackedAmount)
-                    val scaledOneWeek = result.priceOneWeekAgo?.times(trackedAmount)
                     WidgetPrefs.recordSuccess(
                         context, appWidgetId, System.currentTimeMillis(),
                         priceText = text,
                         rawPrice = displayed,
-                        oneDayAgo = scaledOneDay,
-                        oneWeekAgo = scaledOneWeek,
+                        oneDayAgo = result.priceOneDayAgo?.times(trackedAmount),
+                        oneWeekAgo = result.priceOneWeekAgo?.times(trackedAmount),
                     )
                     val state = computeState(context, appWidgetId, hasFreshPrice = true)
-                    appWidgetManager.updateAppWidget(
+                    mgr.updateAppWidget(
                         appWidgetId, buildViews(context, text, appWidgetId, state)
                     )
                 }
@@ -213,15 +243,10 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                     WidgetPrefs.recordFailure(
                         context, appWidgetId, reason = result.reason
                     )
-                    // On *any* fetch failure with a cached price, show
-                    // the last-known value with a greyed icon. We don't
-                    // wait for two consecutive failures here — the user
-                    // explicitly asked for the cached-price-with-grey-
-                    // icon behaviour.
                     val cached = WidgetPrefs.loadLastPriceText(context, appWidgetId)
                     val text = cached ?: "—"
                     val state = errorState(context)
-                    appWidgetManager.updateAppWidget(
+                    mgr.updateAppWidget(
                         appWidgetId, buildViews(context, text, appWidgetId, state)
                     )
                 }
@@ -229,11 +254,30 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         /**
-         * Greyed visual state to render after a fetch failure. If
-         * battery saver / no-network is the *root* cause, attribute it
-         * to that specifically so the click target on the widget makes
-         * sense (battery saver opens the dialog; offline doesn't).
+         * Render a BTC-mode widget. One Bitcoin equals one Bitcoin
+         * (xtrackedAmount), so there's no fetch and no historical data;
+         * the change indicator naturally hides itself.
          */
+        private fun renderBtcWidget(
+            context: Context,
+            mgr: AppWidgetManager,
+            appWidgetId: Int,
+        ) {
+            val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
+            val showDecimals = WidgetPrefs.loadShowDecimals(context, appWidgetId)
+            val separator = WidgetPrefs.loadSeparator(context, appWidgetId)
+            val text = PriceFormat.format(trackedAmount, showDecimals, separator)
+            WidgetPrefs.recordSuccess(
+                context, appWidgetId, System.currentTimeMillis(),
+                priceText = text, rawPrice = trackedAmount,
+                oneDayAgo = null, oneWeekAgo = null,
+            )
+            val state = computeState(context, appWidgetId, hasFreshPrice = true)
+            mgr.updateAppWidget(
+                appWidgetId, buildViews(context, text, appWidgetId, state)
+            )
+        }
+
         private fun errorState(context: Context): WidgetState {
             if (isPowerSaveOn(context)) return WidgetState.BATTERY_SAVER
             if (!hasNetwork(context)) return WidgetState.OFFLINE
@@ -241,22 +285,22 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         /**
-         * Try once, and if that fails wait [RETRY_DELAY_MS] and try again.
-         * Cheap enough (single extra HTTP call) and protects against
-         * transient flakiness on flaky cell connections.
+         * Try once, and if EVERY currency failed wait [RETRY_DELAY_MS]
+         * and try again. Partial successes don't trigger a retry.
          */
-        private fun fetchWithRetry(currency: String): PriceResult {
-            val first = PriceFetcher.fetchPrice(currency)
-            if (first is PriceResult.Success) return first
+        private fun fetchPricesWithRetry(
+            currencies: Collection<String>,
+        ): Map<String, PriceResult> {
+            val first = PriceFetcher.fetchPrices(currencies)
+            if (first.values.any { it is PriceResult.Success }) return first
             try { Thread.sleep(RETRY_DELAY_MS) } catch (_: InterruptedException) {}
-            val second = PriceFetcher.fetchPrice(currency)
-            return second
+            return PriceFetcher.fetchPrices(currencies)
         }
 
         /**
          * Public hook used by the configuration activity right after the
-         * user saves their settings. Triggers an async refresh so the
-         * widget reflects the new settings immediately.
+         * user saves their settings. Bypasses the user-tap rate limit
+         * because the user just deliberately changed something.
          */
         fun updateWidget(
             context: Context,
@@ -264,14 +308,12 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int
         ) {
             val state = computeState(context, appWidgetId, hasFreshPrice = false)
-            // Paint loading state immediately on the calling (UI) thread.
             appWidgetManager.updateAppWidget(
                 appWidgetId, buildViews(context, "…", appWidgetId, state)
             )
-            // Then fetch in the background.
             CoroutineScope(Dispatchers.IO).launch {
                 delay(50)
-                refreshWidgetSync(context, appWidgetManager, appWidgetId)
+                refreshWidgets(context, appWidgetManager, intArrayOf(appWidgetId))
             }
         }
 
@@ -282,8 +324,6 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         ): WidgetState {
             if (isPowerSaveOn(context)) return WidgetState.BATTERY_SAVER
             if (!hasNetwork(context)) return WidgetState.OFFLINE
-            // After 2+ consecutive failures we visually mark the widget
-            // as stale so the user notices their data is old.
             val failCount = WidgetPrefs.loadFailCount(context, appWidgetId)
             if (!hasFreshPrice && failCount >= 2) return WidgetState.STALE
             return WidgetState.NORMAL
@@ -297,15 +337,10 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_bitcoin_price)
 
-            // Compose the symbol + price string. Symbol comes from the
-            // currency choice; the priceText is already locale/decimal-
-            // formatted by the caller.
             val currency = WidgetPrefs.loadCurrency(context, appWidgetId)
             val symbol = WidgetPrefs.symbolFor(currency)
             views.setTextViewText(R.id.price_text, "$symbol $priceText")
 
-            // Unit label: "<amount> BTC". Hidden if the user opted out
-            // of the caption.
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
             val hideUnit = WidgetPrefs.loadHideUnitLabel(context, appWidgetId)
             views.setViewVisibility(
@@ -315,13 +350,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount))
             }
 
-            // Show / hide the bitcoin logo per user setting.
             val hideLogo = WidgetPrefs.loadHideLogo(context, appWidgetId)
             views.setViewVisibility(
                 R.id.btc_icon, if (hideLogo) View.GONE else View.VISIBLE
             )
 
-            // Icon tint by state.
             val iconRes = when (state) {
                 WidgetState.NORMAL -> R.drawable.ic_bitcoin
                 WidgetState.BATTERY_SAVER, WidgetState.STALE, WidgetState.OFFLINE ->
@@ -331,17 +364,12 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val iconAlpha = if (state == WidgetState.NORMAL) ICON_ALPHA_NORMAL else ICON_ALPHA_GREY
             views.setInt(R.id.btc_icon, "setImageAlpha", iconAlpha)
 
-            // Background opacity — applied to the dedicated background
-            // ImageView. 0..100% maps to 0..255 image alpha.
             val opacityPct = WidgetPrefs.loadOpacity(context, appWidgetId)
             val opacity255 = (opacityPct.coerceIn(0, 100) * 255 / 100)
             views.setInt(R.id.background_view, "setImageAlpha", opacity255)
 
-            // Optional change indicator at the bottom (red/green % line).
             renderChangeIndicator(context, views, appWidgetId, state)
 
-            // Click target depends on state. When battery saver is ON we
-            // launch a tiny activity that explains the situation.
             val pi = if (state == WidgetState.BATTERY_SAVER) {
                 buildBatterySaverPendingIntent(context, appWidgetId)
             } else {
@@ -353,18 +381,8 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
         /**
          * Set text + colour + visibility on the change indicator line.
-         *
-         * Hidden when:
-         *   • the user has the indicator turned OFF,
-         *   • we have no current price yet (never fetched), OR
-         *   • the upstream feed didn't include the requested historical
-         *     value (legacy feeds, or the user picked 1w but the feed
-         *     only ships 1d, etc.).
-         *
-         * Greyed states (battery saver / offline / stale) still show the
-         * indicator computed from the last-known values — keeping it
-         * visible matches what the rest of the widget does (cached
-         * price stays on screen).
+         * Hidden when the user has the indicator OFF, no current price
+         * yet, or the upstream feed didn't ship the requested historical.
          */
         private fun renderChangeIndicator(
             context: Context,
@@ -389,25 +407,19 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             }
 
             val pct = ((current - historical) / historical) * 100.0
-            val sign = if (pct >= 0) "+" else "" // negative numbers carry their own minus
+            val sign = if (pct >= 0) "+" else ""
             val periodLabel = if (mode == WidgetPrefs.CHANGE_1W) "7d" else "24h"
             val text = String.format(Locale.US, "%s%.1f%% %s", sign, pct, periodLabel)
 
             val colorRes = if (pct >= 0) R.color.change_up else R.color.change_down
-            // setTextColor on RemoteViews requires a resolved int colour
-            // (not a colour-resource id) on older API levels; using
-            // getColor() works uniformly on minSdk 26+.
             val color = context.getColor(colorRes)
 
-            // In greyed states, dim the indicator so it doesn't visually
-            // shout while the rest of the widget is muted.
             val alpha = if (state == WidgetState.NORMAL) 1.0f else 0.6f
             views.setTextViewText(R.id.change_indicator, text)
             views.setTextColor(R.id.change_indicator, applyAlpha(color, alpha))
             views.setViewVisibility(R.id.change_indicator, View.VISIBLE)
         }
 
-        /** Multiply the alpha channel of an ARGB colour by [factor]. */
         private fun applyAlpha(color: Int, factor: Float): Int {
             val a = ((color ushr 24) and 0xFF)
             val newA = (a * factor.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
@@ -415,14 +427,10 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         private fun formatUnitLabel(amount: Double): String {
-            // "1 BTC", "0.5 BTC", "2 BTC". Strip trailing zeros so we
-            // don't say "1.00 BTC" when 1 was meant.
             val rendered = if (amount == amount.toLong().toDouble()) {
                 amount.toLong().toString()
             } else {
-                // Up to 8 decimal places (BTC has 8 satoshis precision),
-                // trailing zeros stripped.
-                val s = String.format(java.util.Locale.US, "%.8f", amount)
+                val s = String.format(Locale.US, "%.8f", amount)
                     .trimEnd('0').trimEnd('.')
                 if (s.isEmpty()) "0" else s
             }
@@ -433,9 +441,13 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             context: Context,
             appWidgetId: Int
         ): PendingIntent {
+            // ACTION_REFRESH always triggers a refresh-all in
+            // handleRefreshAction; we no longer pass EXTRA_APPWIDGET_IDS
+            // because the receiver ignores them. Per-widget data on the
+            // intent stays only so distinct PendingIntent instances
+            // don't collide via FLAG_UPDATE_CURRENT.
             val intent = Intent(context, BitcoinPriceWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH
-                putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
                 data = android.net.Uri.parse("cheesebtc://refresh/$appWidgetId")
             }
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -459,11 +471,6 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             return pm?.isPowerSaveMode == true
         }
 
-        /**
-         * True iff the device has a usable network connection. Cheap
-         * pre-check to avoid burning a futile HTTP request when the
-         * device is in airplane mode or out of signal.
-         */
         private fun hasNetwork(context: Context): Boolean {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? ConnectivityManager ?: return false

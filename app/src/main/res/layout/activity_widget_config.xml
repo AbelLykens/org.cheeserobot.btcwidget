@@ -6,6 +6,10 @@
     indicator). For reconfigure flows where any advanced setting is
     non-default, the activity auto-expands the section on entry so the
     user can see what's already set.
+
+    A live preview at the top sits on a checkered grey background so the
+    opacity slider has a visible effect even before the widget is on a
+    real wallpaper.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -40,10 +44,32 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="16dp"
             android:gravity="center"
             android:text="@string/config_subtitle"
             android:textSize="14sp" />
+
+        <!-- ============================================================
+             Live preview. The wrapping FrameLayout gets a checkered
+             grey background at runtime so the user can see how their
+             chosen opacity reads against any home-screen wallpaper.
+             ============================================================ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:text="@string/config_preview_label"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <FrameLayout
+            android:id="@+id/preview_container"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginBottom="20dp">
+
+            <include layout="@layout/widget_bitcoin_price" />
+        </FrameLayout>
 
         <!-- ============================================================
              Simple section — currency only. Always visible.
@@ -93,8 +119,8 @@
             android:background="?android:attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            android:minHeight="44dp"
             android:gravity="center_vertical"
+            android:minHeight="44dp"
             android:paddingVertical="10dp"
             android:text="@string/config_advanced_show"
             android:textSize="14sp"

@@ -8,31 +8,34 @@ import android.content.Context
  * Each placed widget has its own appWidgetId; we store every setting
  * keyed by that id so multiple widgets can be configured independently.
  *
- * Settings stored per widget:
- *   currency            — "USD" / "EUR" / "BTC"
- *   opacity             — 0..100 % background opacity (default 75)
- *   hideLogo            — bool, hide the bitcoin glyph
- *   hideUnitLabel       — bool, hide the "<amount> BTC" caption
- *   trackedAmount       — Double, default 1.0; widget displays
- *                         (trackedAmount × spot price)
- *   showDecimals        — bool, default false; when true the price is
+ * Per-widget settings:
+ *   currency            - "USD" / "EUR" / "BTC"
+ *   opacity             - 0..100 % background opacity (default 75)
+ *   hideLogo            - bool, hide the bitcoin glyph
+ *   hideUnitLabel       - bool, hide the "<amount> BTC" caption
+ *   trackedAmount       - Double, default 1.0; widget displays
+ *                         (trackedAmount x spot price)
+ *   showDecimals        - bool, default false; when true the price is
  *                         rendered with 2 decimal places
- *   thousandsSeparator  — one of SEPARATOR_*; controls how groups of
+ *   thousandsSeparator  - one of SEPARATOR_*; controls how groups of
  *                         three digits are visually separated
- *   changeIndicator     — "OFF" / "1D" / "1W"; toggles the red/green
+ *   changeIndicator     - "OFF" / "1D" / "1W"; toggles the red/green
  *                         percentage-change line at the bottom of the
  *                         widget
- *   lastSuccessAt       — epoch ms of last successful price fetch
- *   lastPriceText       — last successfully rendered price string,
- *                         shown again while offline / battery-saver so
- *                         the user still sees something useful
- *   lastRawPrice        — last successfully fetched RAW current price
+ *   lastSuccessAt       - epoch ms of last successful price fetch
+ *   lastPriceText       - last successfully rendered price string
+ *   lastRawPrice        - last successfully fetched RAW current price
  *                         (Double, no formatting). Used to compute the
  *                         change indicator without re-fetching.
- *   last1dAgoPrice      — last fetched 1-day-ago RAW price (or absent)
- *   last1wAgoPrice      — last fetched 1-week-ago RAW price (or absent)
- *   consecutiveFails    — number of consecutive fetch failures (used to
- *                         flip the widget into a "stale" visual state)
+ *   last1dAgoPrice      - last fetched 1-day-ago RAW price (or absent)
+ *   last1wAgoPrice      - last fetched 1-week-ago RAW price (or absent)
+ *   consecutiveFails    - count of consecutive fetch failures (drives
+ *                         the "stale" visual state after >=2)
+ *
+ * Global (not per-widget):
+ *   lastNetworkAt       - epoch ms of the most recent network attempt
+ *                         across ALL widgets, used to rate-limit
+ *                         user-triggered refreshes.
  */
 object WidgetPrefs {
 
@@ -53,23 +56,23 @@ object WidgetPrefs {
     private const val KEY_FAIL_COUNT_PREFIX = "fail_count_"
     private const val KEY_LAST_ERROR_PREFIX = "last_error_"
     private const val KEY_LAST_ERROR_AT_PREFIX = "last_error_at_"
+    private const val KEY_LAST_NETWORK_AT_GLOBAL = "last_network_at_global"
 
     const val CURRENCY_USD = "USD"
     const val CURRENCY_EUR = "EUR"
 
     /**
-     * "For fun" currency: when selected, the widget skips the network
-     * call entirely and always displays `₿ <trackedAmount>` (because
-     * one Bitcoin is, by definition, exactly one Bitcoin).
+     * "For fun" currency: when selected the widget skips the network
+     * call entirely and always displays "Bitcoin x trackedAmount".
      */
     const val CURRENCY_BTC = "BTC"
 
     // Thousands-separator options.
-    const val SEPARATOR_AUTO = "AUTO"   // use the device locale's default
-    const val SEPARATOR_COMMA = "COMMA" // 1,234,567
-    const val SEPARATOR_DOT = "DOT"     // 1.234.567
-    const val SEPARATOR_SPACE = "SPACE" // 1 234 567
-    const val SEPARATOR_NONE = "NONE"   // 1234567
+    const val SEPARATOR_AUTO = "AUTO"
+    const val SEPARATOR_COMMA = "COMMA"
+    const val SEPARATOR_DOT = "DOT"
+    const val SEPARATOR_SPACE = "SPACE"
+    const val SEPARATOR_NONE = "NONE"
 
     // Change-indicator modes.
     const val CHANGE_OFF = "OFF"
@@ -98,7 +101,6 @@ object WidgetPrefs {
             ?: CURRENCY_USD
     }
 
-    /** True if a currency has been saved for this widget id. */
     fun hasCurrency(context: Context, appWidgetId: Int): Boolean {
         return prefs(context).contains(KEY_CURRENCY_PREFIX + appWidgetId)
     }
@@ -140,7 +142,6 @@ object WidgetPrefs {
 
     fun saveTrackedAmount(context: Context, appWidgetId: Int, amount: Double) {
         val safe = if (amount.isFinite() && amount >= 0) amount else DEFAULT_TRACKED_AMOUNT
-        // Doubles don't have a SharedPreferences setter; bit-cast to Long.
         prefs(context).edit()
             .putLong(KEY_TRACKED_AMOUNT_PREFIX + appWidgetId, java.lang.Double.doubleToRawLongBits(safe))
             .apply()
@@ -198,14 +199,6 @@ object WidgetPrefs {
 
     // ---- Fetch state ------------------------------------------------------
 
-    /**
-     * Persist a successful fetch. Called on the network-success path
-     * (and for BTC mode, where there's no network call).
-     *
-     * [rawPrice], [oneDayAgo] and [oneWeekAgo] are optional so callers
-     * that don't know them (BTC mode, legacy paths) can omit them; we
-     * record `null` placeholders, leaving any prior value in place.
-     */
     fun recordSuccess(
         context: Context,
         appWidgetId: Int,
@@ -218,7 +211,6 @@ object WidgetPrefs {
         prefs(context).edit().apply {
             putLong(KEY_LAST_SUCCESS_PREFIX + appWidgetId, epochMs)
             putInt(KEY_FAIL_COUNT_PREFIX + appWidgetId, 0)
-            // Clear any stale error message — we just had a success.
             remove(KEY_LAST_ERROR_PREFIX + appWidgetId)
             remove(KEY_LAST_ERROR_AT_PREFIX + appWidgetId)
             if (priceText != null) {
@@ -268,7 +260,6 @@ object WidgetPrefs {
         }.apply()
     }
 
-    /** The reason text from the most recent failed fetch, or null. */
     fun loadLastError(context: Context, appWidgetId: Int): String? {
         return prefs(context).getString(KEY_LAST_ERROR_PREFIX + appWidgetId, null)
     }
@@ -285,22 +276,36 @@ object WidgetPrefs {
         return prefs(context).getLong(KEY_LAST_SUCCESS_PREFIX + appWidgetId, 0L)
     }
 
-    /** The last successfully rendered price (without the currency symbol). */
     fun loadLastPriceText(context: Context, appWidgetId: Int): String? {
         return prefs(context).getString(KEY_LAST_PRICE_TEXT_PREFIX + appWidgetId, null)
     }
 
-    /** Last successfully fetched RAW current price, or null if never fetched. */
     fun loadLastRawPrice(context: Context, appWidgetId: Int): Double? =
         loadDouble(context, KEY_LAST_RAW_PRICE_PREFIX + appWidgetId)
 
-    /** Last fetched 1-day-ago raw price, or null when not exposed by the feed. */
     fun loadLastOneDayAgo(context: Context, appWidgetId: Int): Double? =
         loadDouble(context, KEY_LAST_1D_PRICE_PREFIX + appWidgetId)
 
-    /** Last fetched 1-week-ago raw price, or null when not exposed by the feed. */
     fun loadLastOneWeekAgo(context: Context, appWidgetId: Int): Double? =
         loadDouble(context, KEY_LAST_1W_PRICE_PREFIX + appWidgetId)
+
+    // ---- Global rate-limit ------------------------------------------------
+
+    /**
+     * Epoch ms of the last network attempt across ALL widgets. Zero
+     * means "never attempted". Stored globally because the price feed
+     * is a single shared resource; one fetch covers every widget.
+     */
+    fun loadLastNetworkAt(context: Context): Long {
+        return prefs(context).getLong(KEY_LAST_NETWORK_AT_GLOBAL, 0L)
+    }
+
+    fun markNetworkAttempt(
+        context: Context,
+        epochMs: Long = System.currentTimeMillis()
+    ) {
+        prefs(context).edit().putLong(KEY_LAST_NETWORK_AT_GLOBAL, epochMs).apply()
+    }
 
     private fun loadDouble(context: Context, key: String): Double? {
         if (!prefs(context).contains(key)) return null
@@ -311,7 +316,6 @@ object WidgetPrefs {
 
     // ---- Cleanup ----------------------------------------------------------
 
-    /** Wipe every per-widget key when a widget is removed. */
     fun deleteAll(context: Context, appWidgetId: Int) {
         prefs(context).edit()
             .remove(KEY_CURRENCY_PREFIX + appWidgetId)
@@ -335,7 +339,7 @@ object WidgetPrefs {
 
     fun symbolFor(currency: String): String = when (currency.uppercase()) {
         CURRENCY_EUR -> "€"
-        CURRENCY_BTC -> "₿" // ₿  U+20BF BITCOIN SIGN
+        CURRENCY_BTC -> "₿"
         else -> "$"
     }
 }

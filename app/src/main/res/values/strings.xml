@@ -14,6 +14,8 @@
     <string name="config_eur">Euros (€)</string>
     <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
 
+    <string name="config_preview_label">Preview</string>
+
     <string name="config_advanced_show">Advanced options ▾</string>
     <string name="config_advanced_hide">Advanced options ▴</string>
 
