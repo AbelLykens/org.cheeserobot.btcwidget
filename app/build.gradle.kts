@@ -11,22 +11,65 @@ android {
         applicationId = "org.cheeserobot.btcwidget"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // We only ship English strings — drop every other locale's
+        // resources from the APK (each translated `values-*` folder pulls
+        // in ~kB of strings from appcompat/etc.).
+        resourceConfigurations += listOf("en")
+
+        // Vector drawables are supported natively from API 21; minSdk is
+        // 26 so the support-library shim is unnecessary (and would
+        // require us to depend on appcompat).
     }
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
 
+    // Disable build artifacts we don't use — each one adds resources
+    // and/or generated classes to the final APK.
+    buildFeatures {
+        buildConfig = false
+        resValues = false
+        shaders = false
+    }
+
     buildTypes {
-        release {
+        debug {
+            // Keep debug builds fast; no shrinking.
             isMinifyEnabled = false
+        }
+        release {
+            // R8 strips unused Kotlin/AndroidX classes; resource shrinker
+            // drops the hundreds of `abc_*.png` and `mtrl_*.png` assets
+            // pulled in transitively by appcompat/material that we don't
+            // reference.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
+            )
+        }
+    }
+
+    // Drop AGP-injected dependency metadata we don't ship to a store.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
+    packaging {
+        resources {
+            excludes += listOf(
+                "META-INF/*.kotlin_module",
+                "META-INF/*.version",
+                "kotlin/**",
+                "DebugProbesKt.bin"
             )
         }
     }
@@ -42,10 +85,11 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.activity:activity-ktx:1.8.2")
-    implementation("com.google.android.material:material:1.11.0")
+    // Keep dependencies minimal. We deliberately avoid appcompat and
+    // material — the widget config UI is just three stock framework
+    // widgets and pulling either of those libraries in adds megabytes of
+    // PNG/9-patch drawables (abc_btn_switch_to_on_mtrl_*.png, etc.) that
+    // bloat the APK without us using them.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 

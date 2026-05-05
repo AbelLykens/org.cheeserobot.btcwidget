@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    The shape is drawn fully opaque. The widget provider controls the
+    actual on-screen opacity at runtime by calling setImageAlpha on the
+    ImageView that uses this drawable as its src - that way the user can
+    pick any opacity from 0-100% without us needing 100 baked drawables.
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/widget_background" />
+    <solid android:color="@color/widget_background_solid" />
     <corners android:radius="16dp" />
 </shape>

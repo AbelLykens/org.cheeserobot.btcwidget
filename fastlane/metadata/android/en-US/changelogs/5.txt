@@ -1,0 +1,14 @@
+v2.0 - Big quality-of-life update.
+
+* "Add widget" button right inside the app.
+* Reconfigure widgets after adding (pencil icon while moving).
+* New settings: tracked amount, decimals, thousands separator,
+  background opacity, hide-logo, hide-caption.
+* "Bitcoin (₿)" easter-egg currency that always shows 1 BTC.
+* Cached price stays visible (greyed) on any fetch failure.
+* Battery-saver awareness: greys out, taps explain, deep-links
+  into battery settings.
+* Offline detection: greys out instead of retrying.
+* Errors now reported in the main app, not in notifications —
+  POST_NOTIFICATIONS permission removed.
+* New Bitcoin ring logo; significantly smaller APK.

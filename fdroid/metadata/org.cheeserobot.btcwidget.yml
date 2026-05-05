@@ -1,14 +1,8 @@
-# Place this file at metadata/org.cheeserobot.btcwidget.yml inside a fork
-# of https://gitlab.com/fdroid/fdroiddata , then open a merge request.
-# Filename must match applicationId exactly.
-
 Categories:
   - Money
-
 License: MIT
 AuthorName: Abel Lykens
 AuthorEmail: claude@ngutechnology.nl
-
 WebSite: https://github.com/AbelLykens/org.cheeserobot.btcwidget
 SourceCode: https://github.com/AbelLykens/org.cheeserobot.btcwidget
 IssueTracker: https://github.com/AbelLykens/org.cheeserobot.btcwidget/issues
@@ -27,7 +21,14 @@ Builds:
     gradle:
       - yes
 
+  - versionName: '2.0'
+    versionCode: 5
+    commit: v2.0
+    subdir: app
+    gradle:
+      - yes
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: '1.0'
-CurrentVersionCode: 1
+CurrentVersion: '2.0'
+CurrentVersionCode: 5

@@ -5,16 +5,34 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Adaptive icon foreground: a centered white "B" inside the safe zone (~66dp).
-         The icon is drawn at viewport scale; we offset by 22dp on each axis so the
-         glyph sits in the inner 66x66 area required by adaptive icons. -->
+    <!--
+        Adaptive icon foreground: orange ring + orange "B".
+
+        The 108×108 viewport must keep meaningful content inside the
+        66×66 safe zone (centered) so the launcher's mask doesn't crop
+        anything important. We size the ring at radius 32 from the
+        centre, which puts it just inside that safe zone.
+
+        The B character path is from the original Bitcoin Core mark
+        (designed in a 64×64 viewport) — we re-use it inside a group
+        translated to (22, 22) so the B's centre lands at (54, 54).
+    -->
+
+    <!-- Orange ring outline. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F7931A"
+        android:strokeWidth="5"
+        android:pathData="M86,54 A32,32 0 1,1 22,54 A32,32 0 1,1 86,54 Z" />
+
+    <!-- Orange "B" character, scaled into the centre of the ring. -->
     <group
         android:translateX="22"
         android:translateY="22"
-        android:scaleX="1.03"
-        android:scaleY="1.03">
+        android:scaleX="1.0"
+        android:scaleY="1.0">
         <path
-            android:fillColor="#FFFFFF"
+            android:fillColor="#F7931A"
             android:pathData="M44.36,28.16
                 C45.04,23.71 41.66,21.32 37.04,19.72
                 L38.54,13.69

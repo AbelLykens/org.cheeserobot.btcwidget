@@ -4,23 +4,71 @@
     <string name="widget_label">BTC Price</string>
     <string name="widget_description">Shows the latest Bitcoin price from cheeserobot.org</string>
 
+    <!-- Configuration screen -->
     <string name="config_title">Choose your currency</string>
     <string name="config_subtitle">Pick how you want the BTC price displayed</string>
+    <string name="config_reconfigure_subtitle">Update your widget settings</string>
+
+    <string name="config_currency_label">Currency</string>
     <string name="config_usd">US Dollars ($)</string>
     <string name="config_eur">Euros (€)</string>
+    <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
+
+    <string name="config_tracked_amount_label">Tracked amount</string>
+    <string name="config_tracked_amount_hint">1</string>
+    <string name="config_tracked_amount_hint_long">How much BTC to price. e.g. 0.5 shows half a Bitcoin\'s worth. Default: 1.</string>
+
+    <string name="config_format_label">Number format</string>
+    <string name="config_show_decimals">Show decimal places</string>
+    <string name="config_separator_label">Thousands separator</string>
+    <string-array name="config_separator_options">
+        <item>Auto (locale)</item>
+        <item>Comma — 1,234</item>
+        <item>Dot — 1.234</item>
+        <item>Space — 1 234</item>
+        <item>None — 1234</item>
+    </string-array>
+
+    <string name="config_opacity_label">Background opacity</string>
+    <string name="config_opacity_value">%1$d%%</string>
+
+    <string name="config_display_label">Display</string>
+    <string name="config_hide_logo">Hide Bitcoin logo</string>
+    <string name="config_hide_unit_label">Hide \"1 BTC\" caption</string>
+
+    <string name="config_save">Save</string>
+    <string name="config_cancel">Cancel</string>
 
     <string name="btc_icon_desc">Bitcoin logo</string>
 
-    <string name="notif_title">BTC widget couldn\'t load price</string>
+    <!-- Battery saver dialog (BatterySaverInfoActivity) -->
+    <string name="battery_saver_dialog_title">Battery saver is on</string>
+    <string name="battery_saver_dialog_message">The Bitcoin price widget won\'t auto-update right now to save power. Tapping it won\'t fetch a new price either. Turn off battery saver to resume live updates.</string>
+    <string name="battery_saver_dialog_open_settings">Battery settings</string>
+    <string name="battery_saver_dialog_dismiss">OK</string>
 
     <!-- Launcher screen -->
     <string name="launcher_subtitle">Live BTC price on your home screen</string>
     <string name="preview_loading">Checking price feed…</string>
+    <string name="launcher_widgets_status_title">Your widgets</string>
+    <string name="launcher_widget_status_ok">Widget #%1$d (%2$s): showing %3$s — updated %4$s</string>
+    <string name="launcher_widget_status_never_fetched">Widget #%1$d (%2$s): never fetched yet</string>
+    <string name="launcher_widget_status_error">Widget #%1$d (%2$s): last fetch failed (%3$s) — %4$s</string>
+    <string name="launcher_widget_status_btc_mode">Widget #%1$d (BTC mode): always shows %2$s</string>
     <string name="launcher_how_to_title">How to add the widget</string>
     <string name="launcher_how_to_steps">1.  Long-press an empty spot on your home screen.\n2.  Tap \"Widgets\".\n3.  Find \"Cheese BTC Widget\" in the list.\n4.  Drag \"BTC Price\" onto the home screen.\n5.  Choose USD or EUR.</string>
+    <string name="launcher_add_widget">Add widget to home screen</string>
     <string name="launcher_open_home">Take me to the home screen</string>
     <string name="launcher_refresh_all">Refresh existing widgets</string>
-    <string name="launcher_footer">Tap any widget to refresh it. The widget also updates itself about every 30 minutes.</string>
+    <string name="toast_pin_unsupported">Your launcher doesn\'t support adding widgets directly. Take you to the home screen — long-press an empty spot and tap \"Widgets\".</string>
+    <string name="toast_pin_failed">Couldn\'t add the widget. Try long-pressing an empty spot on your home screen instead.</string>
+    <string name="launcher_footer">Tap any widget to refresh it. The widget also updates itself about every 30 minutes. While moving a widget on the home screen, tap the pencil icon to change its settings.</string>
     <string name="toast_no_widgets">No widgets placed yet — add one from the home screen.</string>
     <string name="toast_refresh_sent">Refreshing %1$d widget(s)…</string>
+
+    <!-- Relative-time labels -->
+    <string name="time_just_now">just now</string>
+    <string name="time_minutes_ago">%1$d min ago</string>
+    <string name="time_hours_ago">%1$d hr ago</string>
+    <string name="time_days_ago">%1$d days ago</string>
 </resources>

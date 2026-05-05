@@ -3,8 +3,6 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Required on Android 13+ to show error notifications. -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -27,6 +25,14 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Note: we deliberately do NOT register for
+            ACTION_POWER_SAVE_MODE_CHANGED here. Android tags that
+            broadcast with FLAG_RECEIVER_REGISTERED_ONLY, which means
+            manifest receivers never get it — only dynamically registered
+            ones do. Live battery-saver detection happens inside
+            BatterySaverInfoActivity instead.
+        -->
         <receiver
             android:name=".BitcoinPriceWidgetProvider"
             android:exported="true"
@@ -48,6 +54,22 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+
+        <!--
+            Translucent activity used as the widget's tap-target whenever
+            battery saver is active. We can't surface a Toast from the
+            BroadcastReceiver context (Android suppresses background
+            toasts when notifications are disabled), so we open a tiny
+            dialog activity instead.
+        -->
+        <activity
+            android:name=".BatterySaverInfoActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.CheeseWidget.Transparent" />
 
     </application>
 

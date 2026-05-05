@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ~75% opaque white. First two hex digits = alpha (BF = 191/255). -->
+    <!--
+        widget_background is the legacy ~75% opaque white kept for the
+        launcher preview. The widget itself uses widget_background_solid
+        (fully opaque) and applies opacity at runtime via setImageAlpha,
+        so users can pick any value from 0–100%.
+    -->
     <color name="widget_background">#BFFFFFFF</color>
+    <color name="widget_background_solid">#FFFFFFFF</color>
     <color name="widget_text">#FF1A1A1A</color>
     <color name="bitcoin_orange">#FFF7931A</color>
 </resources>

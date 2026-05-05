@@ -1,12 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
 
-    <style name="Theme.CheeseWidget" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/bitcoin_orange</item>
+    <!--
+        Use the platform DeviceDefault theme so we don't have to ship
+        AppCompat/Material — both libraries pull in hundreds of unused
+        PNG/9-patch drawables that bloat the APK significantly.
+    -->
+    <style name="Theme.CheeseWidget" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/bitcoin_orange</item>
+        <item name="android:colorAccent">@color/bitcoin_orange</item>
     </style>
 
-    <style name="Theme.CheeseWidget.Config" parent="Theme.CheeseWidget">
-        <!-- Used by the configuration activity shown on Add. -->
+    <style name="Theme.CheeseWidget.Config" parent="Theme.CheeseWidget" />
+
+    <!--
+        Used by BatterySaverInfoActivity. We want the AlertDialog to
+        appear "floating" over the home screen with no visible activity
+        chrome.
+    -->
+    <style name="Theme.CheeseWidget.Transparent" parent="@android:style/Theme.DeviceDefault.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:backgroundDimEnabled">true</item>
     </style>
 
 </resources>
