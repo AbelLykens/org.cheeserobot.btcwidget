@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // Kotlin support is provided by AGP 9's built-in integration —
+    // applying id("org.jetbrains.kotlin.android") on top of that
+    // causes a "kotlin extension already registered" collision.
 }
 
 android {
@@ -79,8 +81,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    // AGP 9's built-in Kotlin DSL. Replaces the legacy
+    // `kotlinOptions { jvmTarget = "17" }` block, which only existed
+    // when the standalone `org.jetbrains.kotlin.android` plugin was
+    // applied.
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 }
 
