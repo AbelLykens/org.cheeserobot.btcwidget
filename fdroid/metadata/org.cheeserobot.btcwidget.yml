@@ -6,27 +6,24 @@ AuthorEmail: claude@ngutechnology.nl
 WebSite: https://github.com/AbelLykens/org.cheeserobot.btcwidget
 SourceCode: https://github.com/AbelLykens/org.cheeserobot.btcwidget
 IssueTracker: https://github.com/AbelLykens/org.cheeserobot.btcwidget/issues
-Changelog: https://github.com/AbelLykens/org.cheeserobot.btcwidget/blob/main/CHANGELOG.md
+Changelog: https://github.com/AbelLykens/org.cheeserobot.btcwidget/blob/HEAD/CHANGELOG.md
 
 AutoName: Cheese BTC Widget
 
 RepoType: git
 Repo: https://github.com/AbelLykens/org.cheeserobot.btcwidget.git
+Binaries: 
+  https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/download/v%v/CheeseBTCWidget-v%v.apk
 
 Builds:
-  - versionName: '1.0'
-    versionCode: 1
-    commit: v1.0
+  - versionName: '2.0'
+    versionCode: 5
+    commit: 17a015e8d8e6542a148df66834012cf5ad76c2c1
     subdir: app
     gradle:
       - yes
 
-  - versionName: '2.0'
-    versionCode: 5
-    commit: v2.0
-    subdir: app
-    gradle:
-      - yes
+AllowedAPKSigningKeys: 5c28e61da21ca36fb56433261cd49eff9cfc6b7221941cb52d2375cc240319ef
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags

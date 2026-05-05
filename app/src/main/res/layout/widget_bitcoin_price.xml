@@ -2,18 +2,17 @@
 <!--
     Layout structure:
 
-      FrameLayout (root, transparent)
-        ├─ ImageView (background_view) — fills root, used to control
-        │                                background opacity at runtime via
-        │                                setImageAlpha (RemoteViews can't
-        │                                tint shape drawables directly)
-        └─ LinearLayout (content)
-             ├─ ImageView (btc_icon)    — orange logo, can be hidden /
-             │                            greyed out at runtime
+      FrameLayout (widget_root, transparent)
+        ├─ ImageView (background_view) — fills root, runtime opacity
+        └─ LinearLayout (content_row)  — centered as a group, so the
+             │                            visible-content "block" stays
+             │                            symmetrically positioned
+             │                            whether the icon is shown or
+             │                            hidden
+             ├─ ImageView (btc_icon)   — orange logo
              └─ LinearLayout (text_column)
-                  ├─ "1 BTC"            — small caption: makes it explicit
-                  │                       we always show price for one BTC
-                  └─ price_text          — auto-sizing big number
+                  ├─ unit_label (e.g. "1 BTC")
+                  └─ price_text (e.g. "$ 81,282")
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -29,36 +28,45 @@
         android:scaleType="fitXY"
         android:src="@drawable/widget_background" />
 
+    <!--
+        The content row is `wrap_content` and `layout_gravity=center`,
+        which means: whatever children we draw, the whole group sits in
+        the middle of the widget. Hiding the icon collapses its slot
+        and re-centers the remaining text column in place — no left
+        drift, no right drift.
+    -->
     <LinearLayout
         android:id="@+id/content_row"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
+        android:layout_gravity="center"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="8dp">
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp">
 
         <ImageView
             android:id="@+id/btc_icon"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="10dp"
             android:contentDescription="@string/btc_icon_desc"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_bitcoin" />
 
         <LinearLayout
             android:id="@+id/text_column"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:minWidth="96dp"
             android:orientation="vertical">
 
             <TextView
                 android:id="@+id/unit_label"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:alpha="0.75"
+                android:alpha="0.7"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
@@ -68,19 +76,19 @@
 
             <TextView
                 android:id="@+id/price_text"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:autoSizeMaxTextSize="40sp"
-                android:autoSizeMinTextSize="12sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:autoSizeMaxTextSize="28sp"
+                android:autoSizeMinTextSize="14sp"
                 android:autoSizeStepGranularity="1sp"
                 android:autoSizeTextType="uniform"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
+                android:minWidth="96dp"
                 android:textColor="@color/widget_text"
                 android:textStyle="bold"
-                tools:text="$78,875" />
+                tools:text="$ 81,282" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>
