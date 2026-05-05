@@ -1,0 +1,7 @@
+v2.1 - Polish & build fixes.
+
+* Widget face restyled — icon and text are centered as one block, so
+  hiding the logo no longer shifts the rest off-center.
+* Prices fill the widget vertically again (auto-sizing fix).
+* Internal: migrated to AGP 9 built-in Kotlin to resolve a build
+  collision.

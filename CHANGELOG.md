@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1] - 2026-05-05
+
+### Changed
+- **Widget face restyled.** The icon-and-text group is now centered as
+  a single block, so hiding the Bitcoin logo no longer shifts the
+  remaining text off-center. Auto-sizing of the price has a real
+  vertical bound now, so prices fill the widget vertically instead of
+  rendering small.
+- Migrated the Gradle build from the standalone
+  `org.jetbrains.kotlin.android` plugin to AGP 9's built-in Kotlin
+  support, fixing a "kotlin extension already registered" collision
+  with AGP 9.0.1 + Kotlin 2.2.10.
+
 ## [2.0] - 2026-05-04
 
 A big quality-of-life release. The widget is now configurable from the
@@ -68,6 +81,7 @@ notifications), and the visual design has been refreshed.
   disabled notifications. Replaced with a dialog Activity, which isn't
   subject to that suppression.
 
+[2.1]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.1
 [2.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.0
 
 ## [1.0] - 2026-05-04
