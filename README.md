@@ -2,15 +2,173 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A small Android home-screen widget that shows the latest Bitcoin price from
-[`https://cheeserobot.org/price/latest.json`](https://cheeserobot.org/price/latest.json).
+A tiny, no-nonsense Android home-screen widget that shows the latest Bitcoin
+price at a glance. No accounts, no ads, no tracking — just the number.
 
 Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
+Price feed: [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.org/price/latest.json)
 
-When you add the widget you pick **USD** or **EUR**; the widget then shows
-the Bitcoin logo, the currency symbol (`$` or `€`) and the price rounded to a
-whole number. Tap the widget to force a refresh; otherwise it auto-refreshes
-about every 30 minutes (the Android-imposed minimum for this kind of widget).
+---
+
+## Features
+
+- **One-glance price**. Bitcoin logo, currency symbol, and the price as a
+  whole number. That's it.
+- **USD or EUR** — pick which one you want when you add the widget.
+- **Multiple widgets, multiple currencies**. Add it twice if you want both
+  `$` and `€` side by side on your home screen.
+- **Auto-refresh** roughly every 30 minutes (Android's minimum for
+  home-screen widgets).
+- **Tap to refresh** — don't want to wait? Tap the widget for an immediate
+  update.
+- **Dark mode aware**. The background follows your system theme.
+- **Locale-aware number formatting**. `65,432` for English locales,
+  `65.432` for European locales, etc.
+- **Honest about errors**. If the network is down or the API is misbehaving,
+  the widget shows `!` and posts a notification telling you exactly what
+  went wrong (no internet, HTTP error, bad data, etc.) so you're not left
+  guessing.
+- **Tiny footprint**. No background services, no analytics, no third-party
+  SDKs. The app contacts exactly one host: `cheeserobot.org`.
+- **Free and open source** (MIT). Aiming for F-Droid.
+
+---
+
+## Installing the app
+
+### From F-Droid (recommended once published)
+
+Search for **Cheese BTC Widget** in the F-Droid client and tap install.
+
+### Sideloading the APK
+
+If you have a debug build:
+
+1. Download `app-debug.apk` from the project's releases page (or build it
+   yourself — see [Building from source](#building-from-source)).
+2. On your phone, allow installs from unknown sources for your file
+   manager or browser.
+3. Open the APK and tap **Install**.
+
+The app has **no launcher icon** — that's intentional. The widget itself
+is the entire app, so you won't see "Cheese BTC Widget" in your app
+drawer. Don't worry, it's installed.
+
+---
+
+## Adding the widget to your home screen
+
+1. **Long-press an empty spot** on your home screen.
+2. Tap **Widgets** in the menu that appears.
+3. Scroll to **Cheese BTC Widget** and drag **BTC Price** onto the
+   home screen.
+4. A small picker pops up. Tap **US Dollars ($)** or **Euros (€)**.
+5. The widget loads with the current price within a few seconds.
+
+Want both currencies? Just repeat the steps and pick the other one the
+second time. The widgets are independent.
+
+### Resizing
+
+Long-press the widget and drag the resize handles. The layout scales
+nicely from the default 2×1 cells up to roughly 4×2.
+
+### Removing it
+
+Long-press the widget and drag it to **Remove** at the top of the screen.
+Your currency choice is forgotten — if you re-add it later it will ask
+you again.
+
+---
+
+## Using the widget
+
+- **Tap the widget** to force an immediate refresh. Useful when the price
+  is moving and you don't want to wait for the next 30-minute tick.
+- **Auto-refresh** happens about every 30 minutes. Android may delay it
+  if your phone is in deep doze mode (battery saver, screen off for a
+  long time, etc.) — that's a system-level limitation, not a bug in the
+  widget.
+- **No connectivity?** The widget keeps showing the last price it
+  successfully fetched, but the next refresh will show `!` until the
+  network comes back. Tap the `!` (or the notification it posts) to
+  retry.
+
+---
+
+## Troubleshooting
+
+### The widget shows `!`
+
+Something went wrong fetching the price. The widget posts an Android
+notification with the actual cause — pull down your notification shade
+and read it. Common causes:
+
+- **No internet / Wi-Fi captive portal.** Connect to a working network
+  and tap the widget to retry.
+- **API temporarily down.** `cheeserobot.org` may be having a moment.
+  Wait a few minutes and tap to retry.
+- **Notifications disabled.** On Android 13+, the app needs notification
+  permission to show you *why* it failed. Go to **Settings → Apps →
+  Cheese BTC Widget → Notifications** and enable them. (The price
+  itself doesn't need this permission — only the error message does.)
+
+### The widget shows `…` and never updates
+
+The first fetch hasn't completed yet. Give it 10–20 seconds. If it stays
+that way, tap it once to kick off a refresh.
+
+### The price looks wrong / hasn't moved in hours
+
+Android caps widget refreshes at 30 minutes. If you want the absolute
+latest, tap the widget — that fetches immediately.
+
+### I added the widget but there's no picker
+
+Some launchers (rare) skip the configuration step and add the widget
+with a default currency (USD). Remove it and re-add it from the standard
+**Long-press → Widgets** flow.
+
+### I want to change the currency
+
+Currency is set when you add the widget and isn't editable afterward.
+Remove the widget and add a fresh one — it'll ask again.
+
+---
+
+## Privacy
+
+The widget does exactly one thing over the network: a `GET` request to
+`https://cheeserobot.org/price/latest.json`, every ~30 minutes and on
+tap. No analytics, no telemetry, no ad networks, no account required.
+
+---
+
+## Building from source
+
+### Easiest: Android Studio
+
+1. Open Android Studio (Hedgehog 2023.1.1 or newer recommended).
+2. **File → Open…** and select this `CheeseWidget` folder.
+3. Let it sync. It will download the Gradle wrapper, the Android Gradle
+   Plugin (8.2.2) and the SDK pieces it needs.
+4. Plug in a phone with USB debugging on, or start an emulator.
+5. Click **Run ▶**. The app installs (it has no launcher activity by default
+   — that's normal; the widget itself is the entry point).
+
+### From the command line
+
+The project ships without the binary `gradle-wrapper.jar`. Generate it once
+with a system Gradle install (8.0+):
+
+```bash
+cd CheeseWidget
+gradle wrapper --gradle-version 8.4
+./gradlew assembleDebug
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
 
 ## Project layout
 
@@ -42,37 +200,7 @@ CheeseWidget/
             └── values-night/colors.xml          # Dark-mode colors
 ```
 
-## Build & install
-
-### Easiest: Android Studio
-1. Open Android Studio (Hedgehog 2023.1.1 or newer recommended).
-2. **File → Open…** and select this `CheeseWidget` folder.
-3. Let it sync. It will download the Gradle wrapper, the Android Gradle
-   Plugin (8.2.2) and the SDK pieces it needs.
-4. Plug in a phone with USB debugging on, or start an emulator.
-5. Click **Run ▶**. The app installs (it has no launcher activity by default
-   — that's normal; the widget itself is the entry point).
-
-### From the command line
-The project ships without the binary `gradle-wrapper.jar`. Generate it once
-with a system Gradle install (8.0+):
-
-```bash
-cd CheeseWidget
-gradle wrapper --gradle-version 8.4
-./gradlew assembleDebug
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
-
-## Adding the widget on the device
-
-1. Long-press an empty spot on the home screen → **Widgets**.
-2. Find **Cheese BTC Widget** in the list, drag **BTC Price** onto the
-   home screen.
-3. The picker opens — tap **US Dollars ($)** or **Euros (€)**.
-4. The widget loads with the current price.
-
-You can place the widget multiple times with different currencies.
+---
 
 ## How the price is fetched
 
@@ -89,7 +217,9 @@ with the actual error (network exception, HTTP status + body snippet, JSON
 parse failure, or "currency key not found, top-level keys were …"), and the
 user can tap the notification (or the widget) to retry immediately.
 
-## Debugging a stuck widget
+---
+
+## Debugging a stuck widget (developer)
 
 If you're seeing `!` or a flat `…`, the fastest way to find out why is
 logcat. Every error path also logs under the `CheeseBTC` tag:
@@ -99,6 +229,7 @@ adb logcat -s CheeseBTC:V
 ```
 
 Common causes:
+
 - **`POST_NOTIFICATIONS not granted`** on Android 13+ — the system
   notification won't appear, but the price-fetch error itself is a
   separate problem; check the lines above it.
@@ -113,7 +244,9 @@ Common causes:
   what shape it actually has; tweak `PriceFetcher.findCurrency` if the
   schema uses something exotic like `{"usd_price": …}`.
 
-## Things you might want to change
+---
+
+## Things you might want to change (developer)
 
 - **Refresh rate**: edit `android:updatePeriodMillis` in
   `bitcoin_price_widget_info.xml`. 30 minutes is the system minimum; values
@@ -126,6 +259,8 @@ Common causes:
 - **Decimals**: `BitcoinPriceWidgetProvider.formatWhole` rounds to a
   whole number. Swap for `NumberFormat.getCurrencyInstance(...)` if you
   want a localized "$65,432.10".
+
+---
 
 ## Publishing to F-Droid
 
