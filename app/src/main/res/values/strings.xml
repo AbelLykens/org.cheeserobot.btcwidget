@@ -83,7 +83,21 @@
     <!-- Launcher screen -->
     <string name="launcher_subtitle">Live BTC price on your home screen</string>
     <string name="preview_loading">Checking price feed…</string>
+    <!--
+        Preview-box error states. The first line is a big, bold reason
+        ("No network", "Server error", etc.); the second is a smaller
+        explanation. Two strings so the activity can build a Spannable
+        without juggling string concatenation rules.
+    -->
+    <string name="preview_error_no_network">No network</string>
+    <string name="preview_error_no_network_detail">Turn on Wi-Fi or mobile data to fetch the latest price.</string>
+    <string name="preview_error_server">Server error</string>
+    <string name="preview_error_server_detail">cheeserobot.org didn\'t answer with a price. Try again in a moment.</string>
+    <string name="preview_error_fetch_failed">Couldn\'t fetch price</string>
+    <string name="preview_error_fetch_failed_detail">%1$s</string>
     <string name="launcher_widgets_status_title">Your widgets</string>
+    <string name="launcher_edit_widget_desc">Edit widget #%1$d</string>
+    <string name="toast_edit_widget_failed">Couldn\'t open settings for that widget.</string>
     <string name="launcher_widget_status_ok">Widget #%1$d (%2$s): showing %3$s — updated %4$s</string>
     <string name="launcher_widget_status_never_fetched">Widget #%1$d (%2$s): never fetched yet</string>
     <string name="launcher_widget_status_error">Widget #%1$d (%2$s): last fetch failed (%3$s) — %4$s</string>

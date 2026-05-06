@@ -431,7 +431,13 @@ class WidgetConfigActivity : Activity() {
             previewChange.text = String.format(
                 Locale.US, "%s%.1f%% %s", sign, pct, periodLabel
             )
-            val colorRes = if (pct >= 0) R.color.change_up else R.color.change_down
+            // SATS mode shows sats-per-USD; that number rises when BTC
+            // falls. Mirror the live widget's renderChangeIndicator and
+            // flip the colour so "green = BTC up" stays consistent for
+            // the user across currencies, even though the literal pct
+            // sign reflects the displayed value's own direction.
+            val btcWentUp = if (currency == WidgetPrefs.CURRENCY_SATS) pct < 0 else pct >= 0
+            val colorRes = if (btcWentUp) R.color.change_up else R.color.change_down
             previewChange.setTextColor(getColor(colorRes))
             previewChange.visibility = View.VISIBLE
         }

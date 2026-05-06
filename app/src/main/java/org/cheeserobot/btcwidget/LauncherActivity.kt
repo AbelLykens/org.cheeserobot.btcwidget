@@ -5,13 +5,21 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
@@ -36,11 +44,19 @@ import java.util.Locale
  */
 class LauncherActivity : Activity() {
 
+    /**
+     * Most recently launched preview-fetch coroutine. Cancelled before
+     * starting a new one so a slow request that's still in flight when
+     * the user taps "Refresh existing widgets" can't clobber the fresher
+     * result. Without this guard the preview would briefly show "No
+     * network" and then flip back to a stale success when the older
+     * request finally returned.
+     */
+    private var previewJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_launcher)
-
-        val previewView = findViewById<TextView>(R.id.preview_text)
 
         findViewById<Button>(R.id.btn_add_widget).setOnClickListener {
             requestPinWidget()
@@ -53,17 +69,6 @@ class LauncherActivity : Activity() {
         findViewById<Button>(R.id.btn_refresh).setOnClickListener {
             refreshAllWidgets()
         }
-
-        // Run a quick connectivity check so the user can verify the price
-        // feed before placing the widget.
-        previewView.text = getString(R.string.preview_loading)
-        CoroutineScope(Dispatchers.IO).launch {
-            val usd = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_USD)
-            val eur = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_EUR)
-            withContext(Dispatchers.Main) {
-                previewView.text = formatPreview(usd, eur)
-            }
-        }
     }
 
     override fun onResume() {
@@ -71,6 +76,49 @@ class LauncherActivity : Activity() {
         // Refresh the per-widget status panel whenever we come back to
         // this screen — gives the user the latest info each time.
         renderWidgetStatuses()
+        // Re-run the preview fetch on every resume too. onCreate used to
+        // do this once, but that meant a stale "success" frame stuck
+        // around forever if the user toggled airplane mode after first
+        // open. Re-fetching on resume keeps the preview honest with the
+        // current network state, and feels cheap because the activity is
+        // already in the foreground when this runs.
+        loadPreview()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Drop the in-flight fetch so it can't wake up after the user
+        // has moved on (e.g. paused the activity to flip airplane mode).
+        previewJob?.cancel()
+        previewJob = null
+    }
+
+    /**
+     * Fetch USD + EUR prices and paint the preview box. Short-circuits
+     * with a clear "No network" frame when the device reports no usable
+     * connection — that mirrors what the home-screen widget does, so the
+     * two surfaces stay in sync about why nothing's loading.
+     */
+    private fun loadPreview() {
+        val previewView = findViewById<TextView>(R.id.preview_text)
+        previewJob?.cancel()
+
+        if (!BitcoinPriceWidgetProvider.hasNetwork(this)) {
+            previewView.text = buildErrorPreview(
+                getString(R.string.preview_error_no_network),
+                getString(R.string.preview_error_no_network_detail),
+            )
+            return
+        }
+
+        previewView.text = getString(R.string.preview_loading)
+        previewJob = CoroutineScope(Dispatchers.IO).launch {
+            val usd = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_USD)
+            val eur = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_EUR)
+            withContext(Dispatchers.Main) {
+                previewView.text = formatPreview(usd, eur)
+            }
+        }
     }
 
     private fun renderWidgetStatuses() {
@@ -98,18 +146,89 @@ class LauncherActivity : Activity() {
         val now = System.currentTimeMillis()
 
         sorted.forEachIndexed { index, id ->
-            val line = TextView(this).apply {
-                textSize = 13f
-                setPadding(0, 4, 0, 4)
-                text = describeWidget(this@LauncherActivity, id, displayIndex = index + 1, now)
-            }
-            container.addView(
-                line,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                )
+            container.addView(buildWidgetRow(id, displayIndex = index + 1, now))
+        }
+    }
+
+    /**
+     * Build a single row in the "Your widgets" list: status text on the
+     * left, a pencil edit button on the right that re-opens
+     * [WidgetConfigActivity] for that widget id. Previously this was a
+     * plain TextView, but folks with the widget already pinned had no
+     * obvious path back into settings without dragging the widget around
+     * to expose Android 12+'s reconfigure pencil — this surfaces that
+     * affordance directly in the app.
+     */
+    private fun buildWidgetRow(
+        appWidgetId: Int,
+        displayIndex: Int,
+        nowEpochMs: Long,
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 4, 0, 4)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
             )
+        }
+
+        val statusView = TextView(this).apply {
+            textSize = 13f
+            text = describeWidget(this@LauncherActivity, appWidgetId, displayIndex, nowEpochMs)
+            // Weight-1 inside a 0-width slot lets the text expand to fill
+            // whatever's left after the fixed-size pencil claims its space.
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f,
+            )
+        }
+        row.addView(statusView)
+
+        val editBtn = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_edit_pencil)
+            // Borderless ripple so it visually reads as a tappable
+            // glyph rather than a heavy raised button next to body text.
+            val tv = TypedValue()
+            context.theme.resolveAttribute(
+                android.R.attr.selectableItemBackgroundBorderless, tv, true
+            )
+            setBackgroundResource(tv.resourceId)
+            contentDescription =
+                getString(R.string.launcher_edit_widget_desc, displayIndex)
+            // 40dp square — Material's recommended minimum touch target
+            // is 48dp, but the row is already padded by the surrounding
+            // 24dp activity padding so 40dp is comfortable here.
+            val sizePx = (40 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
+                marginStart = (8 * resources.displayMetrics.density).toInt()
+            }
+            setOnClickListener { openWidgetConfig(appWidgetId) }
+        }
+        row.addView(editBtn)
+
+        return row
+    }
+
+    /**
+     * Launch [WidgetConfigActivity] directly for an existing widget. We
+     * deliberately *don't* go through the system reconfigure flow —
+     * that path requires the widget to be currently dragging on the
+     * home screen, which is exactly the friction this button removes.
+     * The config activity already treats "prefs already exist" as the
+     * reconfigure signal, so launching it with EXTRA_APPWIDGET_ID is
+     * enough to make it behave like the system pencil would.
+     */
+    private fun openWidgetConfig(appWidgetId: Int) {
+        try {
+            val intent = Intent(this, WidgetConfigActivity::class.java).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.toast_edit_widget_failed, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -249,6 +368,11 @@ class LauncherActivity : Activity() {
             getString(R.string.toast_refresh_sent, ids.size),
             Toast.LENGTH_SHORT
         ).show()
+        // Re-fetch the preview alongside the widget refresh so a "no
+        // network" / "server error" surfaces at the top of the screen
+        // too, instead of leaving the previously-cached success frame
+        // sitting there contradicting the per-widget status lines.
+        loadPreview()
         // Re-render statuses ~1s after triggering refresh so the panel
         // catches up with the new last-success / last-error values.
         findViewById<View>(R.id.status_container).postDelayed(
@@ -256,12 +380,91 @@ class LauncherActivity : Activity() {
         )
     }
 
-    private fun formatPreview(usd: PriceResult, eur: PriceResult): String {
+    /**
+     * Format the preview box. Three cases:
+     *
+     *   1. Both fetches succeeded → two-line numeric layout, identical
+     *      to the original design.
+     *   2. Both fetches failed → a single, bold error headline ("No
+     *      network", "Server error", …) with a smaller explanation
+     *      underneath. We collapse to one message because both currencies
+     *      ride on the same HTTP call, so a generic failure hits both
+     *      identically and showing it twice is just noise.
+     *   3. Mixed (one success, one fail) → the rare case where the JSON
+     *      came back but only one currency was parseable. Keep the
+     *      per-line layout so the user can still see the half that worked.
+     */
+    private fun formatPreview(usd: PriceResult, eur: PriceResult): CharSequence {
+        if (usd is PriceResult.Success && eur is PriceResult.Success) {
+            return "$  ${formatWhole(usd.price)}\n€  ${formatWhole(eur.price)}"
+        }
+        if (usd is PriceResult.Error && eur is PriceResult.Error) {
+            val (headline, detail) = describeError(usd.reason)
+            return buildErrorPreview(headline, detail)
+        }
+        // Mixed: build per-line. Failed half gets a short reason in the
+        // same spot the price would have occupied.
         fun line(label: String, r: PriceResult): String = when (r) {
             is PriceResult.Success -> "$label  ${formatWhole(r.price)}"
-            is PriceResult.Error -> "$label  — (${r.reason.take(60)})"
+            is PriceResult.Error -> "$label  — ${describeError(r.reason).first}"
         }
         return line("$", usd) + "\n" + line("€", eur)
+    }
+
+    /**
+     * Build a two-line "headline + explanation" CharSequence sized so
+     * the headline is the visual anchor (1.1× body) and the detail line
+     * is smaller (0.75×), regardless of the surrounding TextView's size.
+     */
+    private fun buildErrorPreview(headline: String, detail: String): CharSequence {
+        val sb = SpannableStringBuilder()
+        val headStart = sb.length
+        sb.append(headline)
+        sb.setSpan(StyleSpan(android.graphics.Typeface.BOLD),
+            headStart, sb.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(RelativeSizeSpan(1.1f),
+            headStart, sb.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.append("\n")
+        val detailStart = sb.length
+        sb.append(detail)
+        sb.setSpan(RelativeSizeSpan(0.75f),
+            detailStart, sb.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sb
+    }
+
+    /**
+     * Map a [PriceResult.Error] reason string back into a friendly
+     * (headline, detail) pair. The reason format comes from
+     * [PriceFetcher] — currently:
+     *
+     *   - "Network: <ExceptionClass>: <message>"   → no network
+     *   - "HTTP <code>: <body-snippet>"            → server error
+     *   - everything else (bad JSON, missing key)  → generic fail
+     *
+     * If [PriceFetcher] starts producing new reason shapes, the worst
+     * case is the generic branch — we'll surface the raw reason in the
+     * detail line, which is still better than the old behaviour of
+     * silently displaying stale prices.
+     */
+    private fun describeError(reason: String): Pair<String, String> {
+        val networkMarkers = listOf(
+            "Network:",
+            "UnknownHost",
+            "ConnectException",
+            "SocketTimeout",
+            "NoRouteToHost",
+            "SSLHandshake",
+        )
+        if (networkMarkers.any { it in reason }) {
+            return getString(R.string.preview_error_no_network) to
+                getString(R.string.preview_error_no_network_detail)
+        }
+        if (reason.startsWith("HTTP ")) {
+            return getString(R.string.preview_error_server) to
+                getString(R.string.preview_error_server_detail)
+        }
+        return getString(R.string.preview_error_fetch_failed) to
+            getString(R.string.preview_error_fetch_failed_detail, truncate(reason, 100))
     }
 
     private fun formatWhole(price: Double): String {

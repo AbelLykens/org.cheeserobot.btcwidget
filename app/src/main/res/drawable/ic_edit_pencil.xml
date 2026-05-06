@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pencil glyph used as the per-widget "edit" affordance in the
+    launcher's "Your widgets" list. Tapping opens WidgetConfigActivity
+    for that appWidgetId so the user can change currency, opacity, etc.
+    without having to drag the widget to trigger the home-screen pencil.
+
+    Uses `?android:attr/colorControlNormal` (added in API 21, well below
+    our minSdk of 26) so the icon picks up the day/night theme
+    automatically. The unqualified `?attr/colorControlNormal` form would
+    require AppCompat, which this app deliberately avoids — the launcher
+    activity extends plain Activity to keep the APK small. 24dp viewport
+    — matches Material's icon grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,17.25 L3,21 L6.75,21 L17.81,9.94 L14.06,6.19 L3,17.25 Z M20.71,7.04 C21.1,6.65 21.1,6.02 20.71,5.63 L18.37,3.29 C17.98,2.9 17.35,2.9 16.96,3.29 L15.13,5.12 L18.88,8.87 L20.71,7.04 Z" />
+</vector>

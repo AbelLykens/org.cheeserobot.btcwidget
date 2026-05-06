@@ -428,6 +428,16 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             }
             views.setTextViewText(R.id.price_text, priceWithSymbol)
 
+            // When the last update didn't bring fresh data (battery saver,
+            // offline, stale) the price + unit text get a subtle dim so
+            // the whole widget reads as "not live" — not just the icon.
+            // Kept lighter than the icon's alpha (90/255) so the price
+            // stays comfortably legible at a glance.
+            val textAlpha = if (state == WidgetState.NORMAL) 1.0f else 0.6f
+            val baseTextColor = context.getColor(R.color.widget_text)
+            val dimmedTextColor = applyAlpha(baseTextColor, textAlpha)
+            views.setTextColor(R.id.price_text, dimmedTextColor)
+
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
             val hideUnit = WidgetPrefs.loadHideUnitLabel(context, appWidgetId)
             views.setViewVisibility(
@@ -435,6 +445,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             )
             if (!hideUnit) {
                 views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount, currency))
+                views.setTextColor(R.id.unit_label, dimmedTextColor)
             }
 
             // Two flags can suppress the icon slot:
@@ -538,7 +549,18 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val periodLabel = if (mode == WidgetPrefs.CHANGE_1W) "7d" else "24h"
             val text = String.format(Locale.US, "%s%.1f%% %s", sign, pct, periodLabel)
 
-            val colorRes = if (pct >= 0) R.color.change_up else R.color.change_down
+            // For SATS (sats-per-USD) the displayed quantity moves
+            // OPPOSITE to BTC: a rising sats-per-USD figure means each
+            // dollar buys more sats, i.e. BTC just got cheaper. From a
+            // BTC holder's point of view that's a loss, so we flip the
+            // colour mapping — green for negative, red for positive —
+            // to keep "green = good for Bitcoin" intuitive across all
+            // currencies. The numeric sign in the text stays correct
+            // for the literal value being shown.
+            val isSats = WidgetPrefs.loadCurrency(context, appWidgetId)
+                .equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+            val btcWentUp = if (isSats) pct < 0 else pct >= 0
+            val colorRes = if (btcWentUp) R.color.change_up else R.color.change_down
             val color = context.getColor(colorRes)
 
             val alpha = if (state == WidgetState.NORMAL) 1.0f else 0.6f
@@ -677,7 +699,13 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             return pm?.isPowerSaveMode == true
         }
 
-        private fun hasNetwork(context: Context): Boolean {
+        /**
+         * Visible to the rest of the app (e.g. [LauncherActivity]) so the
+         * "main" screen can short-circuit its preview fetch and render a
+         * "No network" message immediately, identical in spirit to what
+         * the widget itself does when the connectivity check fails.
+         */
+        internal fun hasNetwork(context: Context): Boolean {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? ConnectivityManager ?: return false
             val network = cm.activeNetwork ?: return false
