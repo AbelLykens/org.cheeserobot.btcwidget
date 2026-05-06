@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4] - 2026-05-06
+
+### Added
+- **"Sats per USD" currency.** Pick it from the currency list to see how
+  many satoshis one US dollar buys, with the Font Awesome sat symbol
+  shown in the icon slot. The value is derived from the existing USD
+  price feed (no extra network call), and the 24h/7d change indicator
+  works in this mode too — note that "+x%" for sats means the dollar
+  bought *more* sats than before, i.e. BTC dropped.
+
+[2.4]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.4
+
 ## [2.3] - 2026-05-05
 
 A big release: the widget now shows a 24-hour or 7-day price-change

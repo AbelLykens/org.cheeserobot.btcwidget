@@ -1,0 +1,7 @@
+v2.4 - Sats per USD.
+
+* New "Sats per USD" currency option, with the Font Awesome sat symbol
+  in the icon slot. Shows how many satoshis one US dollar buys; derived
+  from the existing USD feed with no extra network calls.
+* The 24h / 7d change indicator works for sats too. "+x%" means the
+  dollar bought more sats than before (i.e. BTC dropped).

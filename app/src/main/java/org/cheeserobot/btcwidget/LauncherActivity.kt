@@ -126,6 +126,11 @@ class LauncherActivity : Activity() {
         val lastError = WidgetPrefs.loadLastError(ctx, appWidgetId)
         val lastErrorAt = WidgetPrefs.loadLastErrorAt(ctx, appWidgetId)
 
+        // SATS has no Unicode glyph, so symbolFor returns "". Display
+        // it with a "sats" suffix instead of the empty prefix.
+        fun decorate(price: String): String =
+            if (symbol.isEmpty()) "$price sats" else "$symbol $price"
+
         // The "BTC" easter-egg currency is special: the displayed value
         // doesn't change and there's no fetch failure to report.
         if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
@@ -152,7 +157,7 @@ class LauncherActivity : Activity() {
                     R.string.launcher_widget_status_ok,
                     displayIndex,
                     currency,
-                    "$symbol $cachedPrice",
+                    decorate(cachedPrice),
                     relativeTime(nowEpochMs - lastSuccess)
                 )
             }

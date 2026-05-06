@@ -9,7 +9,7 @@ import android.content.Context
  * keyed by that id so multiple widgets can be configured independently.
  *
  * Per-widget settings:
- *   currency            - "USD" / "EUR" / "BTC"
+ *   currency            - "USD" / "EUR" / "BTC" / "SATS"
  *   opacity             - 0..100 % background opacity (default 75)
  *   hideLogo            - bool, hide the bitcoin glyph
  *   hideUnitLabel       - bool, hide the "<amount> BTC" caption
@@ -66,6 +66,14 @@ object WidgetPrefs {
      * call entirely and always displays "Bitcoin x trackedAmount".
      */
     const val CURRENCY_BTC = "BTC"
+
+    /**
+     * Sats per 1 USD. Derived from the USD price (100,000,000 / usd),
+     * so the upstream JSON only needs the existing `price_usd` slot.
+     * The widget shows the sat-symbol glyph (a packaged PNG) instead of
+     * a text symbol like "$" or "€".
+     */
+    const val CURRENCY_SATS = "SATS"
 
     // Thousands-separator options.
     const val SEPARATOR_AUTO = "AUTO"
@@ -337,9 +345,15 @@ object WidgetPrefs {
             .apply()
     }
 
+    /**
+     * Text prefix shown before the price (e.g. "$ 81,324"). SATS has no
+     * widely-supported Unicode glyph yet — for that mode we render the
+     * sat-symbol PNG in the icon slot and return an empty prefix here.
+     */
     fun symbolFor(currency: String): String = when (currency.uppercase()) {
         CURRENCY_EUR -> "€"
         CURRENCY_BTC -> "₿"
+        CURRENCY_SATS -> ""
         else -> "$"
     }
 }

@@ -13,6 +13,7 @@
     <string name="config_usd">US Dollars ($)</string>
     <string name="config_eur">Euros (€)</string>
     <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
+    <string name="config_sats">Sats per USD</string>
 
     <string name="config_preview_label">Preview</string>
 
@@ -53,6 +54,7 @@
     <string name="config_version_label">Version %1$s</string>
 
     <string name="btc_icon_desc">Bitcoin logo</string>
+    <string name="sat_icon_desc">Sat symbol</string>
 
     <!-- Battery saver dialog (BatterySaverInfoActivity) -->
     <string name="battery_saver_dialog_title">Battery saver is on</string>

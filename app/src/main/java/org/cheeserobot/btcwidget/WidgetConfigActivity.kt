@@ -58,6 +58,7 @@ class WidgetConfigActivity : Activity() {
     private lateinit var rbUsd: RadioButton
     private lateinit var rbEur: RadioButton
     private lateinit var rbBtc: RadioButton
+    private lateinit var rbSats: RadioButton
 
     // Advanced toggle + container
     private lateinit var advancedToggle: TextView
@@ -131,6 +132,7 @@ class WidgetConfigActivity : Activity() {
         rbUsd = findViewById(R.id.rb_usd)
         rbEur = findViewById(R.id.rb_eur)
         rbBtc = findViewById(R.id.rb_btc)
+        rbSats = findViewById(R.id.rb_sats)
 
         advancedToggle = findViewById(R.id.advanced_toggle)
         advancedSection = findViewById(R.id.advanced_section)
@@ -207,6 +209,7 @@ class WidgetConfigActivity : Activity() {
         when (currency) {
             WidgetPrefs.CURRENCY_EUR -> rbEur.isChecked = true
             WidgetPrefs.CURRENCY_BTC -> rbBtc.isChecked = true
+            WidgetPrefs.CURRENCY_SATS -> rbSats.isChecked = true
             else -> rbUsd.isChecked = true
         }
 
@@ -314,15 +317,23 @@ class WidgetConfigActivity : Activity() {
         val displayed = samplePrice * tracked
         val priceText = PriceFormat.format(displayed, showDecimals, separator)
         val symbol = WidgetPrefs.symbolFor(currency)
-        previewPrice.text = "$symbol $priceText"
+        // SATS uses the icon slot for the glyph, so the text prefix is empty.
+        previewPrice.text = if (symbol.isEmpty()) priceText else "$symbol $priceText"
 
+        // Swap the preview icon between the Bitcoin logo and the sat
+        // symbol so the user sees the same glyph the live widget will
+        // paint.
+        val isSats = currency == WidgetPrefs.CURRENCY_SATS
+        previewIcon.setImageResource(
+            if (isSats) R.drawable.ic_sat_symbol else R.drawable.ic_bitcoin
+        )
         previewIcon.visibility = if (hideLogo) View.GONE else View.VISIBLE
 
         if (hideUnit) {
             previewUnit.visibility = View.GONE
         } else {
             previewUnit.visibility = View.VISIBLE
-            previewUnit.text = formatUnitLabel(tracked)
+            previewUnit.text = formatUnitLabel(tracked, currency)
         }
 
         previewBackground.imageAlpha = (opacity * 255 / 100)
@@ -360,11 +371,18 @@ class WidgetConfigActivity : Activity() {
         return when (currency) {
             WidgetPrefs.CURRENCY_EUR -> Triple(69498.08, 68717.13, 65033.52)
             WidgetPrefs.CURRENCY_BTC -> Triple(1.0, null, null)
+            WidgetPrefs.CURRENCY_SATS -> {
+                // Mirror the live computation: 100,000,000 / usd_price.
+                val usd = 81324.99
+                val usd1d = 80325.00
+                val usd1w = 76177.99
+                Triple(100_000_000.0 / usd, 100_000_000.0 / usd1d, 100_000_000.0 / usd1w)
+            }
             else -> Triple(81324.99, 80325.00, 76177.99)
         }
     }
 
-    private fun formatUnitLabel(amount: Double): String {
+    private fun formatUnitLabel(amount: Double, currency: String = WidgetPrefs.CURRENCY_USD): String {
         val rendered = if (amount == amount.toLong().toDouble()) {
             amount.toLong().toString()
         } else {
@@ -372,7 +390,11 @@ class WidgetConfigActivity : Activity() {
                 .trimEnd('0').trimEnd('.')
             if (s.isEmpty()) "0" else s
         }
-        return "$rendered BTC"
+        // SATS-mode is "sats per N USD" rather than the price of N BTC.
+        val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+        val unit = if (isSats) "USD" else "BTC"
+        val prefix = if (isSats) "per " else ""
+        return "$prefix$rendered $unit"
     }
 
     private fun showVersionFooter() {
@@ -389,6 +411,7 @@ class WidgetConfigActivity : Activity() {
     private fun selectedCurrency(): String = when {
         rbEur.isChecked -> WidgetPrefs.CURRENCY_EUR
         rbBtc.isChecked -> WidgetPrefs.CURRENCY_BTC
+        rbSats.isChecked -> WidgetPrefs.CURRENCY_SATS
         else -> WidgetPrefs.CURRENCY_USD
     }
 

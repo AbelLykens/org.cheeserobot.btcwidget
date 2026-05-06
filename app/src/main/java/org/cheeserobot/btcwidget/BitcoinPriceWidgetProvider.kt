@@ -193,8 +193,10 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 )
             }
 
+            // SATS widgets ride on the USD fetch — the upstream JSON
+            // doesn't carry sats directly, we just invert the USD price.
             val currencies = networkIds
-                .map { WidgetPrefs.loadCurrency(context, it) }
+                .map { upstreamCurrencyFor(WidgetPrefs.loadCurrency(context, it)) }
                 .toSet()
 
             // Mark the attempt up-front so a second tap arriving while
@@ -206,6 +208,27 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             for (id in networkIds) {
                 renderResult(context, mgr, id, results)
             }
+        }
+
+        /**
+         * For network-backed widgets, what currency key in the upstream
+         * JSON do we actually need? SATS rides on the USD price so its
+         * fetch slot is "USD"; everything else maps to itself.
+         */
+        private fun upstreamCurrencyFor(currency: String): String =
+            if (currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true))
+                WidgetPrefs.CURRENCY_USD else currency
+
+        /**
+         * Number of satoshis in one bitcoin. SATS-mode displays
+         * `SATS_PER_BTC / usd_price` — i.e. how many sats you get per USD.
+         */
+        private const val SATS_PER_BTC = 100_000_000.0
+
+        /** Convert a USD-quoted BTC price to sats-per-USD. */
+        private fun toSats(usdPrice: Double?): Double? {
+            if (usdPrice == null || !usdPrice.isFinite() || usdPrice == 0.0) return null
+            return SATS_PER_BTC / usdPrice
         }
 
         /** Paint a single network-backed widget from a shared result map. */
@@ -220,19 +243,34 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val showDecimals = WidgetPrefs.loadShowDecimals(context, appWidgetId)
             val separator = WidgetPrefs.loadSeparator(context, appWidgetId)
 
-            val result = results[currency]
+            val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+            val lookupKey = upstreamCurrencyFor(currency)
+            val result = results[lookupKey]
                 ?: PriceResult.Error("No result for \"$currency\"")
 
             when (result) {
                 is PriceResult.Success -> {
-                    val displayed = result.price * trackedAmount
+                    // SATS inverts: BTC->USD price becomes USD->sats.
+                    // For sats we also recompute the historical legs from
+                    // the USD historicals so the change indicator stays
+                    // meaningful. Note: when USD goes UP, sats/USD goes
+                    // DOWN — so a green "+x%" line for SATS means USD
+                    // bought more sats than yesterday, i.e. BTC dropped.
+                    val effectivePrice = if (isSats) toSats(result.price) ?: 0.0
+                    else result.price
+                    val effective1d = if (isSats) toSats(result.priceOneDayAgo)
+                    else result.priceOneDayAgo
+                    val effective1w = if (isSats) toSats(result.priceOneWeekAgo)
+                    else result.priceOneWeekAgo
+
+                    val displayed = effectivePrice * trackedAmount
                     val text = PriceFormat.format(displayed, showDecimals, separator)
                     WidgetPrefs.recordSuccess(
                         context, appWidgetId, System.currentTimeMillis(),
                         priceText = text,
                         rawPrice = displayed,
-                        oneDayAgo = result.priceOneDayAgo?.times(trackedAmount),
-                        oneWeekAgo = result.priceOneWeekAgo?.times(trackedAmount),
+                        oneDayAgo = effective1d?.times(trackedAmount),
+                        oneWeekAgo = effective1w?.times(trackedAmount),
                     )
                     val state = computeState(context, appWidgetId, hasFreshPrice = true)
                     mgr.updateAppWidget(
@@ -339,7 +377,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             val currency = WidgetPrefs.loadCurrency(context, appWidgetId)
             val symbol = WidgetPrefs.symbolFor(currency)
-            views.setTextViewText(R.id.price_text, "$symbol $priceText")
+            // SATS uses the icon slot for the glyph, so the text prefix
+            // is empty — skip the spacer space too.
+            val priceWithSymbol =
+                if (symbol.isEmpty()) priceText else "$symbol $priceText"
+            views.setTextViewText(R.id.price_text, priceWithSymbol)
 
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
             val hideUnit = WidgetPrefs.loadHideUnitLabel(context, appWidgetId)
@@ -347,7 +389,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 R.id.unit_label, if (hideUnit) View.GONE else View.VISIBLE
             )
             if (!hideUnit) {
-                views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount))
+                views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount, currency))
             }
 
             val hideLogo = WidgetPrefs.loadHideLogo(context, appWidgetId)
@@ -355,10 +397,17 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 R.id.btc_icon, if (hideLogo) View.GONE else View.VISIBLE
             )
 
+            // Pick the icon family based on currency: SATS gets the
+            // sat-symbol PNG; everything else gets the existing Bitcoin
+            // logo. Each family has a "live" and a "grey" (stale/offline
+            // /battery-saver) variant.
+            val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
             val iconRes = when (state) {
-                WidgetState.NORMAL -> R.drawable.ic_bitcoin
+                WidgetState.NORMAL ->
+                    if (isSats) R.drawable.ic_sat_symbol else R.drawable.ic_bitcoin
                 WidgetState.BATTERY_SAVER, WidgetState.STALE, WidgetState.OFFLINE ->
-                    R.drawable.ic_bitcoin_grey
+                    if (isSats) R.drawable.ic_sat_symbol_grey
+                    else R.drawable.ic_bitcoin_grey
             }
             views.setImageViewResource(R.id.btc_icon, iconRes)
             val iconAlpha = if (state == WidgetState.NORMAL) ICON_ALPHA_NORMAL else ICON_ALPHA_GREY
@@ -426,7 +475,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             return (newA shl 24) or (color and 0x00FFFFFF)
         }
 
-        private fun formatUnitLabel(amount: Double): String {
+        private fun formatUnitLabel(amount: Double, currency: String = WidgetPrefs.CURRENCY_USD): String {
             val rendered = if (amount == amount.toLong().toDouble()) {
                 amount.toLong().toString()
             } else {
@@ -434,7 +483,13 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                     .trimEnd('0').trimEnd('.')
                 if (s.isEmpty()) "0" else s
             }
-            return "$rendered BTC"
+            // SATS-mode shows "sats per N USD" rather than the price of
+            // N BTC, so the caption swaps unit too.
+            val unit = if (currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true))
+                "USD" else "BTC"
+            val prefix = if (currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true))
+                "per " else ""
+            return "$prefix$rendered $unit"
         }
 
         private fun buildRefreshPendingIntent(
