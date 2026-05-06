@@ -255,8 +255,14 @@
                 android:id="@+id/cb_hide_unit_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
                 android:text="@string/config_hide_unit_label" />
+
+            <CheckBox
+                android:id="@+id/cb_show_chart"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:text="@string/config_show_chart" />
 
             <!-- Change indicator (red/green % line) -->
             <TextView

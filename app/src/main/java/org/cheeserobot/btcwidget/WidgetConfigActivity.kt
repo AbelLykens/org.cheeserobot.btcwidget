@@ -72,6 +72,7 @@ class WidgetConfigActivity : Activity() {
     private lateinit var opacityValue: TextView
     private lateinit var cbHideLogo: CheckBox
     private lateinit var cbHideUnitLabel: CheckBox
+    private lateinit var cbShowChart: CheckBox
     private lateinit var rgChange: RadioGroup
     private lateinit var rbChangeOff: RadioButton
     private lateinit var rbChange1d: RadioButton
@@ -144,6 +145,7 @@ class WidgetConfigActivity : Activity() {
         opacityValue = findViewById(R.id.opacity_value)
         cbHideLogo = findViewById(R.id.cb_hide_logo)
         cbHideUnitLabel = findViewById(R.id.cb_hide_unit_label)
+        cbShowChart = findViewById(R.id.cb_show_chart)
         rgChange = findViewById(R.id.rg_change)
         rbChangeOff = findViewById(R.id.rb_change_off)
         rbChange1d = findViewById(R.id.rb_change_1d)
@@ -228,6 +230,7 @@ class WidgetConfigActivity : Activity() {
 
         cbHideLogo.isChecked = WidgetPrefs.loadHideLogo(this, appWidgetId)
         cbHideUnitLabel.isChecked = WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
+        cbShowChart.isChecked = WidgetPrefs.loadShowChart(this, appWidgetId)
 
         when (WidgetPrefs.loadChangeIndicator(this, appWidgetId)) {
             WidgetPrefs.CHANGE_1D -> rbChange1d.isChecked = true
@@ -251,6 +254,7 @@ class WidgetConfigActivity : Activity() {
         if (WidgetPrefs.loadHideLogo(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_LOGO) return true
         if (WidgetPrefs.loadHideUnitLabel(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_UNIT_LABEL) return true
         if (WidgetPrefs.loadChangeIndicator(this, appWidgetId) != WidgetPrefs.DEFAULT_CHANGE_INDICATOR) return true
+        if (WidgetPrefs.loadShowChart(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_CHART) return true
         return false
     }
 
@@ -453,6 +457,7 @@ class WidgetConfigActivity : Activity() {
         WidgetPrefs.saveHideLogo(this, appWidgetId, cbHideLogo.isChecked)
         WidgetPrefs.saveHideUnitLabel(this, appWidgetId, cbHideUnitLabel.isChecked)
         WidgetPrefs.saveChangeIndicator(this, appWidgetId, selectedChangeIndicator())
+        WidgetPrefs.saveShowChart(this, appWidgetId, cbShowChart.isChecked)
 
         val mgr = AppWidgetManager.getInstance(this)
         BitcoinPriceWidgetProvider.updateWidget(this, mgr, appWidgetId)

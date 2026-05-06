@@ -36,6 +36,16 @@ import android.content.Context
  *   lastNetworkAt       - epoch ms of the most recent network attempt
  *                         across ALL widgets, used to rate-limit
  *                         user-triggered refreshes.
+ *   lastHistoryAt       - epoch ms of the most recent successful 7-day
+ *                         history fetch. Used to enforce the hourly cap
+ *                         on the (optional) sparkline endpoint.
+ *   historyJson         - cached body of the last successful 7-day
+ *                         history fetch. Re-parsed on each render so we
+ *                         don't have to refetch every 30-min tick.
+ *
+ * Per-widget (sparkline):
+ *   showChart           - bool, default true; toggles the optional
+ *                         faint 7-day line behind the price text.
  */
 object WidgetPrefs {
 
@@ -57,6 +67,9 @@ object WidgetPrefs {
     private const val KEY_LAST_ERROR_PREFIX = "last_error_"
     private const val KEY_LAST_ERROR_AT_PREFIX = "last_error_at_"
     private const val KEY_LAST_NETWORK_AT_GLOBAL = "last_network_at_global"
+    private const val KEY_LAST_HISTORY_AT_GLOBAL = "last_history_at_global"
+    private const val KEY_HISTORY_JSON_GLOBAL = "history_json_global"
+    private const val KEY_SHOW_CHART_PREFIX = "show_chart_"
 
     const val CURRENCY_USD = "USD"
     const val CURRENCY_EUR = "EUR"
@@ -94,6 +107,7 @@ object WidgetPrefs {
     const val DEFAULT_SHOW_DECIMALS = false
     const val DEFAULT_SEPARATOR = SEPARATOR_AUTO
     const val DEFAULT_CHANGE_INDICATOR = CHANGE_OFF
+    const val DEFAULT_SHOW_CHART = true
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -203,6 +217,18 @@ object WidgetPrefs {
         return prefs(context).getString(
             KEY_CHANGE_INDICATOR_PREFIX + appWidgetId, DEFAULT_CHANGE_INDICATOR
         ) ?: DEFAULT_CHANGE_INDICATOR
+    }
+
+    // ---- Show-chart (optional 7-day sparkline) ---------------------------
+
+    fun saveShowChart(context: Context, appWidgetId: Int, show: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SHOW_CHART_PREFIX + appWidgetId, show).apply()
+    }
+
+    fun loadShowChart(context: Context, appWidgetId: Int): Boolean {
+        return prefs(context).getBoolean(
+            KEY_SHOW_CHART_PREFIX + appWidgetId, DEFAULT_SHOW_CHART
+        )
     }
 
     // ---- Fetch state ------------------------------------------------------
@@ -315,6 +341,33 @@ object WidgetPrefs {
         prefs(context).edit().putLong(KEY_LAST_NETWORK_AT_GLOBAL, epochMs).apply()
     }
 
+    // ---- 7-day history cache (global, hourly refresh) --------------------
+
+    /** Epoch ms of the last successful history fetch, or 0 if never. */
+    fun loadLastHistoryAt(context: Context): Long {
+        return prefs(context).getLong(KEY_LAST_HISTORY_AT_GLOBAL, 0L)
+    }
+
+    /**
+     * Store the raw JSON body alongside the timestamp so a later render
+     * can re-parse without another network round trip. The body is small
+     * (~2 KB for 43 points) so SharedPreferences is fine.
+     */
+    fun saveHistoryJson(
+        context: Context,
+        body: String,
+        epochMs: Long = System.currentTimeMillis()
+    ) {
+        prefs(context).edit()
+            .putString(KEY_HISTORY_JSON_GLOBAL, body)
+            .putLong(KEY_LAST_HISTORY_AT_GLOBAL, epochMs)
+            .apply()
+    }
+
+    fun loadHistoryJson(context: Context): String? {
+        return prefs(context).getString(KEY_HISTORY_JSON_GLOBAL, null)
+    }
+
     private fun loadDouble(context: Context, key: String): Double? {
         if (!prefs(context).contains(key)) return null
         val bits = prefs(context).getLong(key, 0L)
@@ -342,6 +395,7 @@ object WidgetPrefs {
             .remove(KEY_FAIL_COUNT_PREFIX + appWidgetId)
             .remove(KEY_LAST_ERROR_PREFIX + appWidgetId)
             .remove(KEY_LAST_ERROR_AT_PREFIX + appWidgetId)
+            .remove(KEY_SHOW_CHART_PREFIX + appWidgetId)
             .apply()
     }
 

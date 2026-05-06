@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.graphics.Bitmap
 import android.os.PowerManager
 import android.view.View
 import android.widget.RemoteViews
@@ -205,8 +206,42 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             val results = fetchPricesWithRetry(currencies)
 
+            // Best-effort: refresh the (optional) 7-day history at most
+            // once per hour. Runs on the same IO thread we're already on.
+            // A failure here never affects the price render.
+            maybeRefreshHistory(context)
+
             for (id in networkIds) {
                 renderResult(context, mgr, id, results)
+            }
+        }
+
+        /**
+         * Minimum gap between successful 7-day history fetches. The
+         * upstream endpoint changes slowly (server-side updates are
+         * coarse-grained too), so an hour is plenty.
+         */
+        private const val HISTORY_REFRESH_INTERVAL_MS = 60L * 60L * 1000L
+
+        /**
+         * If at least [HISTORY_REFRESH_INTERVAL_MS] has passed since the
+         * last successful history fetch, hit the endpoint and cache the
+         * body for later renders. Failures are silent — the next price
+         * tick will try again.
+         */
+        private fun maybeRefreshHistory(context: Context) {
+            val now = System.currentTimeMillis()
+            val last = WidgetPrefs.loadLastHistoryAt(context)
+            if (last > 0 && (now - last) < HISTORY_REFRESH_INTERVAL_MS) return
+            if (!hasNetwork(context)) return
+            when (val r = HistoryFetcher.fetchHistory()) {
+                is HistoryResult.Success -> {
+                    WidgetPrefs.saveHistoryJson(context, r.rawBody, now)
+                }
+                is HistoryResult.Error -> {
+                    // Non-fatal: leave existing cache alone (or empty),
+                    // the next tick can retry.
+                }
             }
         }
 
@@ -413,6 +448,22 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val iconAlpha = if (state == WidgetState.NORMAL) ICON_ALPHA_NORMAL else ICON_ALPHA_GREY
             views.setInt(R.id.btc_icon, "setImageAlpha", iconAlpha)
 
+            // Optional faint 7-day sparkline behind the price text.
+            // Only painted in the NORMAL state — when stale/offline/
+            // battery-saver we use the static background drawable to
+            // match the greyed-out icon. A null result (chart disabled,
+            // no cached data, degenerate series) also falls back to the
+            // static drawable. We always set the source explicitly so
+            // the previous frame's bitmap can't bleed through.
+            val bmp = if (state == WidgetState.NORMAL)
+                buildSparklineBitmap(context, appWidgetId, currency)
+            else null
+            if (bmp != null) {
+                views.setImageViewBitmap(R.id.background_view, bmp)
+            } else {
+                views.setImageViewResource(R.id.background_view, R.drawable.widget_background)
+            }
+
             val opacityPct = WidgetPrefs.loadOpacity(context, appWidgetId)
             val opacity255 = (opacityPct.coerceIn(0, 100) * 255 / 100)
             views.setInt(R.id.background_view, "setImageAlpha", opacity255)
@@ -519,6 +570,80 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             }
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             return PendingIntent.getActivity(context, appWidgetId, intent, flags)
+        }
+
+        /**
+         * Build the optional sparkline bitmap for [appWidgetId], or null
+         * when:
+         *   - the user has the chart toggle off,
+         *   - we don't yet have any cached history JSON,
+         *   - the cached body is corrupt or empty,
+         *   - the resulting series is too short / flat to render.
+         *
+         * The bitmap also paints the rounded panel (the widget_background
+         * shape) underneath the line, because setImageViewBitmap replaces
+         * the ImageView's src — there's no compositing with the static
+         * drawable that's normally there.
+         */
+        private fun buildSparklineBitmap(
+            context: Context,
+            appWidgetId: Int,
+            currency: String,
+        ): Bitmap? {
+            if (!WidgetPrefs.loadShowChart(context, appWidgetId)) return null
+            val cached = WidgetPrefs.loadHistoryJson(context) ?: return null
+            val parsed = HistoryFetcher.parse(cached)
+            if (parsed !is HistoryResult.Success) return null
+
+            // SATS rides on the USD series and inverts each point.
+            val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+            val baseCurrency = if (isSats) WidgetPrefs.CURRENCY_USD else currency
+            val raw = HistoryFetcher.seriesFor(parsed.points, baseCurrency)
+            if (raw.size < 2) return null
+            val values = if (isSats) {
+                DoubleArray(raw.size) { i ->
+                    val v = raw[i]
+                    if (v == 0.0 || !v.isFinite()) 0.0 else 100_000_000.0 / v
+                }
+            } else raw
+
+            val (widthPx, heightPx) = widgetPixelSize(context, appWidgetId)
+            val color = SparklineRenderer.colorFor(values)
+            val density = context.resources.displayMetrics.density
+            val strokePx = (1.5f * density).coerceAtLeast(1.5f)
+            val cornerRadiusPx = 16f * density
+            val bgFill = context.getColor(R.color.widget_background_solid)
+
+            return SparklineRenderer.render(
+                values = values,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                color = color,
+                strokePx = strokePx,
+                backgroundFill = bgFill,
+                cornerRadiusPx = cornerRadiusPx,
+            )
+        }
+
+        /**
+         * Compute a sensible target bitmap size for the sparkline based
+         * on the widget's current cell footprint. Falls back to a 2x1
+         * default when the launcher hasn't reported sizes yet (typically
+         * the very first paint).
+         */
+        private fun widgetPixelSize(
+            context: Context,
+            appWidgetId: Int,
+        ): Pair<Int, Int> {
+            val opts = AppWidgetManager.getInstance(context).getAppWidgetOptions(appWidgetId)
+            val density = context.resources.displayMetrics.density
+            val maxWdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0)
+            val maxHdp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
+            val widthDp = if (maxWdp > 0) maxWdp else 160
+            val heightDp = if (maxHdp > 0) maxHdp else 80
+            val widthPx = (widthDp * density).toInt().coerceIn(64, 800)
+            val heightPx = (heightDp * density).toInt().coerceIn(32, 400)
+            return widthPx to heightPx
         }
 
         private fun isPowerSaveOn(context: Context): Boolean {

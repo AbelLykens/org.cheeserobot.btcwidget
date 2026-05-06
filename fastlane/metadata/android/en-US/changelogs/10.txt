@@ -1,0 +1,7 @@
+v2.5 - Optional 7-day chart background.
+
+* New optional faint sparkline of the last 7 days behind the price
+  text. Green when the 7-day move is up, red when down.
+* Driven by a new cheeserobot.org/price/price-hist-7d.json endpoint,
+  fetched at most once per hour regardless of how often you tap.
+* Toggle under Advanced options. On by default.

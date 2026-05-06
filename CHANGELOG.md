@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5] - 2026-05-06
+
+### Added
+- **Optional 7-day chart background.** The widget can now paint a faint
+  sparkline of the last week of BTC prices behind the price text. Line
+  is green when the 7-day performance is up, red when down. Driven by a
+  new `cheeserobot.org/price/price-hist-7d.json` endpoint, fetched at
+  most once per hour regardless of how often you tap the widget. Toggle
+  it under **Advanced options → Show 7-day chart background** (on by
+  default). Failures of the history endpoint never affect the price
+  display — the widget falls back to the static panel.
+
+[2.5]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.5
+
 ## [2.4] - 2026-05-06
 
 ### Added

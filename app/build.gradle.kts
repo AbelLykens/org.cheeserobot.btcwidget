@@ -13,8 +13,8 @@ android {
         applicationId = "org.cheeserobot.btcwidget"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.4"
+        versionCode = 10
+        versionName = "2.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -30,6 +30,10 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Returns 0/null/false from stubbed Android APIs in unit tests
+        // instead of throwing. Lets us hit error paths that incidentally
+        // call android.util.Log.* without needing to mock them.
+        unitTests.isReturnDefaultValues = true
     }
 
     // Disable build artifacts we don't use — each one adds resources

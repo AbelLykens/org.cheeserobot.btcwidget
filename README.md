@@ -9,13 +9,23 @@ Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
 Zapstore: <https://zapstore.dev/apps/org.cheeserobot.btcwidget>
 Price feed: [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.org/price/latest.json)
 
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-home-screen.png"
+       alt="All four widget variants on the home screen — USD, BTC, EUR, and the new sats-per-USD"
+       width="320" />
+</p>
+
 ---
 
 ## Features
 
 - **One-glance price**. Bitcoin logo, currency symbol, and the price as a
   whole number. That's it.
-- **USD or EUR** — pick which one you want when you add the widget.
+- **Optional 7-day chart background.** A faint sparkline of the last
+  week behind the price text — green when the 7-day move is up, red
+  when down. On by default; turn it off under Advanced options.
+- **USD, EUR, sats-per-USD, or `₿` mode** — pick which one you want when
+  you add the widget.
 - **Multiple widgets, multiple currencies**. Add it twice if you want both
   `$` and `€` side by side on your home screen.
 - **Auto-refresh** roughly every 30 minutes (Android's minimum for
@@ -147,9 +157,17 @@ Remove the widget and add a fresh one — it'll ask again.
 
 ## Privacy
 
-The widget does exactly one thing over the network: a `GET` request to
-`https://cheeserobot.org/price/latest.json`, every ~30 minutes and on
-tap. No analytics, no telemetry, no ad networks, no account required.
+The widget contacts exactly one host: `cheeserobot.org`. Two `GET`
+requests are made:
+
+1. `https://cheeserobot.org/price/latest.json` — the current price,
+   every ~30 minutes and on tap.
+2. `https://cheeserobot.org/price/price-hist-7d.json` — the 7-day
+   history used for the optional sparkline background. Fetched at most
+   **once per hour**, regardless of how often you tap. Skipped entirely
+   when the chart toggle is off.
+
+No analytics, no telemetry, no ad networks, no account required.
 
 ---
 

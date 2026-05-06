@@ -41,6 +41,7 @@
     <string name="config_display_label">Display</string>
     <string name="config_hide_logo">Hide Bitcoin logo</string>
     <string name="config_hide_unit_label">Hide \"1 BTC\" caption</string>
+    <string name="config_show_chart">Show 7-day chart background</string>
 
     <string name="config_change_label">Price change indicator</string>
     <string name="config_change_hint">Show a coloured percentage line at the bottom of the widget. Green when up, red when down.</string>
