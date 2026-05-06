@@ -14,4 +14,16 @@
     <!-- Change-indicator (red/green % line at the bottom of the widget). -->
     <color name="change_up">#FF1B7F2E</color>
     <color name="change_down">#FFC02828</color>
+
+    <!--
+        Sparkline stroke colours. Chosen separately from the change
+        indicator because the line sits behind the price text rather
+        than next to it: it needs decent contrast against the user's
+        wallpaper at 0% panel opacity, but the dark indicator hues
+        wash out against busy/dark backgrounds. Light-theme widgets
+        usually sit on lighter wallpaper, so we keep the saturated
+        green/red here; the night-qualified copy uses brighter tones.
+    -->
+    <color name="sparkline_up">#FF1B7F2E</color>
+    <color name="sparkline_down">#FFC02828</color>
 </resources>

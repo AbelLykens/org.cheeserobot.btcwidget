@@ -70,6 +70,8 @@ object WidgetPrefs {
     private const val KEY_LAST_HISTORY_AT_GLOBAL = "last_history_at_global"
     private const val KEY_HISTORY_JSON_GLOBAL = "history_json_global"
     private const val KEY_SHOW_CHART_PREFIX = "show_chart_"
+    private const val KEY_MOSCOW_TIME_PREFIX = "moscow_time_"
+    private const val KEY_HIDE_CURRENCY_ICON_PREFIX = "hide_currency_icon_"
 
     const val CURRENCY_USD = "USD"
     const val CURRENCY_EUR = "EUR"
@@ -108,6 +110,30 @@ object WidgetPrefs {
     const val DEFAULT_SEPARATOR = SEPARATOR_AUTO
     const val DEFAULT_CHANGE_INDICATOR = CHANGE_OFF
     const val DEFAULT_SHOW_CHART = true
+
+    /**
+     * Easter egg: when true, and currency is SATS and a thousands
+     * separator is in use, the price (4-digit sats-per-USD value) is
+     * rendered as a colon-separated "Moscow Time" — e.g. 1234 → "12:34"
+     * — instead of as a numeric price. The toggle is hidden in the
+     * config UI unless those two unlocking conditions are met.
+     */
+    const val DEFAULT_MOSCOW_TIME = false
+
+    /**
+     * When true the widget suppresses the currency marker that would
+     * otherwise read in front of the price:
+     *   - USD/EUR/BTC: drop the "$" / "€" / "₿" prefix from the price
+     *     text so just the number renders.
+     *   - SATS: hide the sat-symbol PNG (the icon slot doubles as the
+     *     currency marker in SATS mode, so this flag controls it for
+     *     parity with the text-prefix modes).
+     *
+     * Independent of [DEFAULT_HIDE_LOGO]: that flag governs the bitcoin
+     * glyph specifically (irrelevant for SATS, where the slot already
+     * shows the sat-symbol). Both can be set; their effects compose.
+     */
+    const val DEFAULT_HIDE_CURRENCY_ICON = false
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -228,6 +254,32 @@ object WidgetPrefs {
     fun loadShowChart(context: Context, appWidgetId: Int): Boolean {
         return prefs(context).getBoolean(
             KEY_SHOW_CHART_PREFIX + appWidgetId, DEFAULT_SHOW_CHART
+        )
+    }
+
+    // ---- Moscow Time (easter egg) ----------------------------------------
+
+    fun saveMoscowTime(context: Context, appWidgetId: Int, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_MOSCOW_TIME_PREFIX + appWidgetId, on).apply()
+    }
+
+    fun loadMoscowTime(context: Context, appWidgetId: Int): Boolean {
+        return prefs(context).getBoolean(
+            KEY_MOSCOW_TIME_PREFIX + appWidgetId, DEFAULT_MOSCOW_TIME
+        )
+    }
+
+    // ---- Hide currency icon ----------------------------------------------
+
+    fun saveHideCurrencyIcon(context: Context, appWidgetId: Int, hide: Boolean) {
+        prefs(context).edit()
+            .putBoolean(KEY_HIDE_CURRENCY_ICON_PREFIX + appWidgetId, hide)
+            .apply()
+    }
+
+    fun loadHideCurrencyIcon(context: Context, appWidgetId: Int): Boolean {
+        return prefs(context).getBoolean(
+            KEY_HIDE_CURRENCY_ICON_PREFIX + appWidgetId, DEFAULT_HIDE_CURRENCY_ICON
         )
     }
 
@@ -396,6 +448,8 @@ object WidgetPrefs {
             .remove(KEY_LAST_ERROR_PREFIX + appWidgetId)
             .remove(KEY_LAST_ERROR_AT_PREFIX + appWidgetId)
             .remove(KEY_SHOW_CHART_PREFIX + appWidgetId)
+            .remove(KEY_MOSCOW_TIME_PREFIX + appWidgetId)
+            .remove(KEY_HIDE_CURRENCY_ICON_PREFIX + appWidgetId)
             .apply()
     }
 

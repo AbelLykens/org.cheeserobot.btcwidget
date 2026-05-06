@@ -35,12 +35,29 @@
         <item>None — 1234</item>
     </string-array>
 
+    <!--
+        Easter-egg toggle. The CheckBox is only revealed when currency
+        is SATS and a thousands separator is in use; the copy itself
+        is the wink — picking it formats the four-digit sats value as
+        a colon-split clock (e.g. 1234 → 12:34).
+    -->
+    <string name="config_moscow_time">Display as Moscow Time</string>
+
     <string name="config_opacity_label">Background opacity</string>
     <string name="config_opacity_value">%1$d%%</string>
 
     <string name="config_display_label">Display</string>
-    <string name="config_hide_logo">Hide Bitcoin logo</string>
-    <string name="config_hide_unit_label">Hide \"1 BTC\" caption</string>
+    <!--
+        Display toggles read in the affirmative ("Show X") and are
+        checked by default when the corresponding feature is visible
+        out of the box. The underlying SharedPreferences keys still
+        store the *hide* boolean — the UI inverts at bind/save time —
+        so existing widgets that already saved a hide=true value keep
+        rendering identically without a migration step.
+    -->
+    <string name="config_show_logo">Show Bitcoin logo</string>
+    <string name="config_show_currency_icon">Show currency icon ($, €, sat)</string>
+    <string name="config_show_unit_label">Show \"1 BTC\" caption</string>
     <string name="config_show_chart">Show 7-day chart background</string>
 
     <string name="config_change_label">Price change indicator</string>

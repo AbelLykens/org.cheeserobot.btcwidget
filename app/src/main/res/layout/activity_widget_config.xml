@@ -178,16 +178,9 @@
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
-            <CheckBox
-                android:id="@+id/cb_show_decimals"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_show_decimals" />
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
                 android:layout_marginBottom="20dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
@@ -205,6 +198,22 @@
                     android:layout_height="wrap_content"
                     android:minWidth="160dp" />
             </LinearLayout>
+
+            <!--
+                Easter-egg "Moscow Time" toggle. Hidden by default; the
+                activity flips visibility based on currency==SATS AND
+                a thousands separator being in use. The wink in the
+                copy is intentional — anyone who recognises the meme
+                will know what they're enabling.
+            -->
+            <CheckBox
+                android:id="@+id/cb_moscow_time"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="-8dp"
+                android:layout_marginBottom="20dp"
+                android:text="@string/config_moscow_time"
+                android:visibility="gone" />
 
             <!-- Background opacity -->
             <LinearLayout
@@ -236,7 +245,13 @@
                 android:layout_marginBottom="20dp"
                 android:max="100" />
 
-            <!-- Display toggles -->
+            <!--
+                Display toggles. All read in the affirmative ("Show X")
+                and are checked by default whenever the corresponding
+                feature is visible out of the box. The activity inverts
+                each binding against the underlying KEY_HIDE_* prefs at
+                load/save time so on-disk semantics don't change.
+            -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -246,16 +261,37 @@
                 android:textStyle="bold" />
 
             <CheckBox
-                android:id="@+id/cb_hide_logo"
+                android:id="@+id/cb_show_logo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/config_hide_logo" />
+                android:text="@string/config_show_logo" />
+
+            <!--
+                Currency marker:
+                  - USD/EUR/BTC: the "$" / "€" / "₿" prefix on the
+                    price text.
+                  - SATS: the sat-symbol icon (in SATS mode the icon
+                    slot doubles as the currency marker, so this
+                    composes with "Show Bitcoin logo" — either being
+                    unchecked hides the icon).
+            -->
+            <CheckBox
+                android:id="@+id/cb_show_currency_icon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_show_currency_icon" />
 
             <CheckBox
-                android:id="@+id/cb_hide_unit_label"
+                android:id="@+id/cb_show_unit_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/config_hide_unit_label" />
+                android:text="@string/config_show_unit_label" />
+
+            <CheckBox
+                android:id="@+id/cb_show_decimals"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_show_decimals" />
 
             <CheckBox
                 android:id="@+id/cb_show_chart"

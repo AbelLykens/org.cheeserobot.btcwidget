@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6] - 2026-05-06
+
+### Added
+- **New Bitcoin logo** baked from `btc.png`: density-correct PNGs for
+  every launcher icon mipmap bucket (mdpi → xxxhdpi), and the same
+  artwork inside the widget face, the launcher activity, and the
+  widget configure screen. The adaptive launcher icon now sits on a
+  white background with the orange ring inset 16dp into the safe zone
+  so it stays whole on every launcher mask shape.
+- **Hide currency icon ($, €, sat).** New display toggle: when off it
+  drops the "$" / "€" / "₿" prefix from the price for USD/EUR/BTC
+  modes, and hides the sat-symbol icon for SATS mode. Independent of
+  "Show Bitcoin logo"; for SATS the two toggles compose.
+- **"Moscow Time" easter egg.** Hidden bonus in the configure screen:
+  pick **Sats per USD** as the currency *and* a thousands separator,
+  and a "Display as Moscow Time" toggle appears under Number format.
+  Flipping it on renders the four-digit sats-per-USD figure as a
+  colon-split clock — e.g. 1234 sats becomes `12:34`.
+- **7-day chart in the configure-screen preview.** The sparkline now
+  also paints behind the live preview, so toggling the chart option
+  has visible feedback before you save. Uses real cached history when
+  available; otherwise synthesises a plausible curve from the sample
+  endpoints.
+
+### Changed
+- **All display toggles read in the affirmative ("Show X").** The
+  former "Hide Bitcoin logo" / "Hide \"1 BTC\" caption" CheckBoxes
+  now read "Show Bitcoin logo" / "Show \"1 BTC\" caption" and are
+  checked by default. **Show decimal places** moved out of Number
+  format into the Display section so all visibility toggles live in
+  one place. Underlying preference keys are unchanged — the activity
+  inverts at load/save — so existing widgets keep their settings.
+
+### Fixed
+- **Numeric and Moscow-Time renderings agree on the last digit.**
+  The numeric formatter rounds (HALF_UP), but the Moscow-Time
+  formatter used to truncate via `toLong()`, so a value like 1223.7
+  rendered as `1 224` numerically but `12:23` as Moscow Time. Both
+  now round the same way and produce identical digits.
+
+[2.6]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.6
+
 ## [2.5] - 2026-05-06
 
 ### Added

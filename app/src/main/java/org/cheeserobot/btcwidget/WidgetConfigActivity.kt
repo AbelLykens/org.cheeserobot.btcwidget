@@ -70,17 +70,29 @@ class WidgetConfigActivity : Activity() {
     private lateinit var spSeparator: Spinner
     private lateinit var sbOpacity: SeekBar
     private lateinit var opacityValue: TextView
-    private lateinit var cbHideLogo: CheckBox
-    private lateinit var cbHideUnitLabel: CheckBox
+    // All four toggles are user-affirmative ("Show X"). The underlying
+    // SharedPreferences keys are still KEY_HIDE_* — we invert at every
+    // load and save so that storing a checked CheckBox writes hide=false.
+    private lateinit var cbShowLogo: CheckBox
+    private lateinit var cbShowCurrencyIcon: CheckBox
+    private lateinit var cbShowUnitLabel: CheckBox
     private lateinit var cbShowChart: CheckBox
     private lateinit var rgChange: RadioGroup
     private lateinit var rbChangeOff: RadioButton
     private lateinit var rbChange1d: RadioButton
     private lateinit var rbChange1w: RadioButton
 
+    /**
+     * Easter-egg toggle. Bound to a CheckBox that's invisible by
+     * default and only revealed when [shouldShowMoscowTimeToggle]
+     * returns true (currency == SATS && thousands separator in use).
+     */
+    private lateinit var cbMoscowTime: CheckBox
+
     // Preview views (looked up inside preview_container)
     private lateinit var previewContainer: FrameLayout
     private lateinit var previewBackground: ImageView
+    private lateinit var previewSparkline: ImageView
     private lateinit var previewIcon: ImageView
     private lateinit var previewUnit: TextView
     private lateinit var previewPrice: TextView
@@ -143,16 +155,19 @@ class WidgetConfigActivity : Activity() {
         spSeparator = findViewById(R.id.sp_separator)
         sbOpacity = findViewById(R.id.sb_opacity)
         opacityValue = findViewById(R.id.opacity_value)
-        cbHideLogo = findViewById(R.id.cb_hide_logo)
-        cbHideUnitLabel = findViewById(R.id.cb_hide_unit_label)
+        cbShowLogo = findViewById(R.id.cb_show_logo)
+        cbShowCurrencyIcon = findViewById(R.id.cb_show_currency_icon)
+        cbShowUnitLabel = findViewById(R.id.cb_show_unit_label)
         cbShowChart = findViewById(R.id.cb_show_chart)
         rgChange = findViewById(R.id.rg_change)
         rbChangeOff = findViewById(R.id.rb_change_off)
         rbChange1d = findViewById(R.id.rb_change_1d)
         rbChange1w = findViewById(R.id.rb_change_1w)
+        cbMoscowTime = findViewById(R.id.cb_moscow_time)
 
         previewContainer = findViewById(R.id.preview_container)
         previewBackground = previewContainer.findViewById(R.id.background_view)
+        previewSparkline = previewContainer.findViewById(R.id.sparkline_view)
         previewIcon = previewContainer.findViewById(R.id.btc_icon)
         previewUnit = previewContainer.findViewById(R.id.unit_label)
         previewPrice = previewContainer.findViewById(R.id.price_text)
@@ -228,8 +243,12 @@ class WidgetConfigActivity : Activity() {
         sbOpacity.progress = opacity
         opacityValue.text = getString(R.string.config_opacity_value, opacity)
 
-        cbHideLogo.isChecked = WidgetPrefs.loadHideLogo(this, appWidgetId)
-        cbHideUnitLabel.isChecked = WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
+        // Invert at load: a saved hide=true → CheckBox unchecked.
+        // Defaults line up: DEFAULT_HIDE_* = false → CheckBox starts checked,
+        // matching the out-of-the-box "everything visible" appearance.
+        cbShowLogo.isChecked = !WidgetPrefs.loadHideLogo(this, appWidgetId)
+        cbShowCurrencyIcon.isChecked = !WidgetPrefs.loadHideCurrencyIcon(this, appWidgetId)
+        cbShowUnitLabel.isChecked = !WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
         cbShowChart.isChecked = WidgetPrefs.loadShowChart(this, appWidgetId)
 
         when (WidgetPrefs.loadChangeIndicator(this, appWidgetId)) {
@@ -237,6 +256,14 @@ class WidgetConfigActivity : Activity() {
             WidgetPrefs.CHANGE_1W -> rbChange1w.isChecked = true
             else -> rbChangeOff.isChecked = true
         }
+
+        // Restore the easter-egg toggle and let the visibility helper
+        // decide whether to actually show it on screen. If the user
+        // saved with it on but later flipped currency away from SATS
+        // (or picked separator=None), the CheckBox stays hidden and
+        // the price formatter naturally falls back to numeric.
+        cbMoscowTime.isChecked = WidgetPrefs.loadMoscowTime(this, appWidgetId)
+        applyMoscowTimeVisibility()
 
         // Auto-expand advanced when any advanced field is non-default.
         // Only relevant for reconfigure; fresh widgets have no prefs and
@@ -252,9 +279,11 @@ class WidgetConfigActivity : Activity() {
         if (WidgetPrefs.loadSeparator(this, appWidgetId) != WidgetPrefs.DEFAULT_SEPARATOR) return true
         if (WidgetPrefs.loadOpacity(this, appWidgetId) != WidgetPrefs.DEFAULT_OPACITY) return true
         if (WidgetPrefs.loadHideLogo(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_LOGO) return true
+        if (WidgetPrefs.loadHideCurrencyIcon(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_CURRENCY_ICON) return true
         if (WidgetPrefs.loadHideUnitLabel(this, appWidgetId) != WidgetPrefs.DEFAULT_HIDE_UNIT_LABEL) return true
         if (WidgetPrefs.loadChangeIndicator(this, appWidgetId) != WidgetPrefs.DEFAULT_CHANGE_INDICATOR) return true
         if (WidgetPrefs.loadShowChart(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_CHART) return true
+        if (WidgetPrefs.loadMoscowTime(this, appWidgetId) != WidgetPrefs.DEFAULT_MOSCOW_TIME) return true
         return false
     }
 
@@ -284,13 +313,20 @@ class WidgetConfigActivity : Activity() {
     }
 
     private fun wirePreviewListeners() {
-        rgCurrency.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        rgCurrency.setOnCheckedChangeListener { _, _ ->
+            applyMoscowTimeVisibility()
+            updatePreview()
+        }
         rgChange.setOnCheckedChangeListener { _, _ -> updatePreview() }
         cbShowDecimals.setOnCheckedChangeListener { _, _ -> updatePreview() }
-        cbHideLogo.setOnCheckedChangeListener { _, _ -> updatePreview() }
-        cbHideUnitLabel.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbShowLogo.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbShowCurrencyIcon.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbShowUnitLabel.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbShowChart.setOnCheckedChangeListener { _, _ -> updatePreview() }
+        cbMoscowTime.setOnCheckedChangeListener { _, _ -> updatePreview() }
         spSeparator.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                applyMoscowTimeVisibility()
                 updatePreview()
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -303,6 +339,24 @@ class WidgetConfigActivity : Activity() {
     }
 
     /**
+     * The Moscow-Time CheckBox is intentionally hidden until the user
+     * has stumbled into the right combination — currency=SATS AND a
+     * thousands separator in use. When the unlock conditions stop
+     * holding we hide it again; we deliberately *don't* uncheck it,
+     * so flipping currency back to SATS restores the prior state.
+     */
+    private fun applyMoscowTimeVisibility() {
+        val unlocked = shouldShowMoscowTimeToggle()
+        cbMoscowTime.visibility = if (unlocked) View.VISIBLE else View.GONE
+    }
+
+    private fun shouldShowMoscowTimeToggle(): Boolean {
+        if (selectedCurrency() != WidgetPrefs.CURRENCY_SATS) return false
+        if (selectedSeparator() == WidgetPrefs.SEPARATOR_NONE) return false
+        return true
+    }
+
+    /**
      * Render the preview from the current UI state (not from saved
      * prefs). Uses sample current/historical prices so the change
      * indicator can show plausible values before any real fetch.
@@ -312,17 +366,28 @@ class WidgetConfigActivity : Activity() {
         val tracked = parsedTrackedAmount()
         val showDecimals = cbShowDecimals.isChecked
         val separator = selectedSeparator()
-        val hideLogo = cbHideLogo.isChecked
-        val hideUnit = cbHideUnitLabel.isChecked
+        val hideLogo = !cbShowLogo.isChecked
+        val hideUnit = !cbShowUnitLabel.isChecked
         val changeMode = selectedChangeIndicator()
         val opacity = sbOpacity.progress.coerceIn(0, 100)
 
         val (samplePrice, sampleOneDay, sampleOneWeek) = sampleData(currency)
         val displayed = samplePrice * tracked
-        val priceText = PriceFormat.format(displayed, showDecimals, separator)
+        val moscowTime = cbMoscowTime.isChecked
+        val priceText = if (PriceFormat.isMoscowTimeActive(currency, separator, moscowTime))
+            PriceFormat.formatMoscowTime(displayed)
+        else
+            PriceFormat.format(displayed, showDecimals, separator)
         val symbol = WidgetPrefs.symbolFor(currency)
-        // SATS uses the icon slot for the glyph, so the text prefix is empty.
-        previewPrice.text = if (symbol.isEmpty()) priceText else "$symbol $priceText"
+        val hideCurrencyIcon = !cbShowCurrencyIcon.isChecked
+        // SATS uses the icon slot for the glyph (text prefix is empty).
+        // For USD/EUR/BTC the prefix is dropped when the user has
+        // hide-currency-icon turned on.
+        previewPrice.text = when {
+            symbol.isEmpty() -> priceText
+            hideCurrencyIcon -> priceText
+            else -> "$symbol $priceText"
+        }
 
         // Swap the preview icon between the Bitcoin logo and the sat
         // symbol so the user sees the same glyph the live widget will
@@ -331,7 +396,11 @@ class WidgetConfigActivity : Activity() {
         previewIcon.setImageResource(
             if (isSats) R.drawable.ic_sat_symbol else R.drawable.ic_bitcoin
         )
-        previewIcon.visibility = if (hideLogo) View.GONE else View.VISIBLE
+        // Two flags can hide the icon slot: hideLogo (legacy) and, in
+        // SATS mode, hideCurrencyIcon (because the sat-symbol IS the
+        // currency marker for SATS).
+        val iconHidden = hideLogo || (isSats && hideCurrencyIcon)
+        previewIcon.visibility = if (iconHidden) View.GONE else View.VISIBLE
 
         if (hideUnit) {
             previewUnit.visibility = View.GONE
@@ -341,6 +410,8 @@ class WidgetConfigActivity : Activity() {
         }
 
         previewBackground.imageAlpha = (opacity * 255 / 100)
+
+        renderPreviewSparkline(currency, sampleOneWeek, samplePrice)
 
         val historical: Double? = when (changeMode) {
             WidgetPrefs.CHANGE_1D -> sampleOneDay
@@ -364,6 +435,113 @@ class WidgetConfigActivity : Activity() {
             previewChange.setTextColor(getColor(colorRes))
             previewChange.visibility = View.VISIBLE
         }
+    }
+
+    /**
+     * Paint the preview's sparkline ImageView. Hidden when the user
+     * has the chart toggle off or when no plausible series is available.
+     *
+     * Real cached history (if the user already has a placed widget that
+     * fetched it) is preferred so the preview matches what the live
+     * widget will paint. With no cache we synthesise a plausible
+     * 7-day curve from the sample week-ago and current price so the
+     * preview still shows *something* — empty preview is the bug
+     * report's symptom.
+     */
+    private fun renderPreviewSparkline(
+        currency: String,
+        weekAgo: Double?,
+        currentSample: Double,
+    ) {
+        if (!cbShowChart.isChecked) {
+            previewSparkline.visibility = View.GONE
+            return
+        }
+
+        val series = cachedSeriesFor(currency) ?: synthesiseSeries(weekAgo, currentSample)
+        if (series == null || series.size < 2) {
+            previewSparkline.visibility = View.GONE
+            return
+        }
+
+        // The preview FrameLayout has a fixed 100dp height and matches
+        // its parent's width. On the very first render (called from
+        // onCreate before layout has run) width==0 — defer to a post()
+        // so we don't draw a degenerate bitmap that gets immediately
+        // discarded by the post-layout re-render.
+        if (previewContainer.width == 0 || previewContainer.height == 0) {
+            previewSparkline.visibility = View.GONE
+            previewContainer.post { updatePreview() }
+            return
+        }
+        val density = resources.displayMetrics.density
+        val widthPx = previewContainer.width
+        val heightPx = previewContainer.height
+
+        val colorRes = if (SparklineRenderer.isUp(series))
+            R.color.sparkline_up else R.color.sparkline_down
+        val color = getColor(colorRes)
+        val strokePx = (1.5f * density).coerceAtLeast(1.5f)
+
+        val bmp = SparklineRenderer.render(
+            values = series,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            color = color,
+            strokePx = strokePx,
+        )
+        if (bmp == null) {
+            previewSparkline.visibility = View.GONE
+            return
+        }
+        previewSparkline.setImageBitmap(bmp)
+        previewSparkline.visibility = View.VISIBLE
+    }
+
+    /**
+     * Pull a real series out of the global history cache (the same one
+     * the live widget reads). Returns null when no widget has fetched
+     * yet, the cache is corrupt, or the parsed series is too short.
+     * SATS-mode rides on the USD series and inverts each point, mirroring
+     * [BitcoinPriceWidgetProvider.buildSparklineBitmap].
+     */
+    private fun cachedSeriesFor(currency: String): DoubleArray? {
+        val cached = WidgetPrefs.loadHistoryJson(this) ?: return null
+        val parsed = HistoryFetcher.parse(cached) as? HistoryResult.Success ?: return null
+        val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+        val baseCurrency = if (isSats) WidgetPrefs.CURRENCY_USD else currency
+        val raw = HistoryFetcher.seriesFor(parsed.points, baseCurrency)
+        if (raw.size < 2) return null
+        return if (isSats) {
+            DoubleArray(raw.size) { i ->
+                val v = raw[i]
+                if (v == 0.0 || !v.isFinite()) 0.0 else 100_000_000.0 / v
+            }
+        } else raw
+    }
+
+    /**
+     * Build a synthetic 7-day curve when we have no cached history. We
+     * trace a gently wavy path between the week-ago sample and the
+     * current sample so the line shape reads as "a real chart" rather
+     * than a straight diagonal. BTC mode (no historical) returns null —
+     * the chart simply hides for that mode.
+     */
+    private fun synthesiseSeries(weekAgo: Double?, current: Double): DoubleArray? {
+        if (weekAgo == null || !weekAgo.isFinite() || !current.isFinite()) return null
+        val n = 24
+        val out = DoubleArray(n)
+        val span = current - weekAgo
+        for (i in 0 until n) {
+            val t = i.toDouble() / (n - 1)
+            // Linear interpolation plus a small sinusoidal wobble (~3 %
+            // of span) so the curve has visible character even when the
+            // endpoints are close together.
+            val base = weekAgo + span * t
+            val wobble = span * 0.03 * Math.sin(t * Math.PI * 3.0)
+            out[i] = base + wobble
+        }
+        return out
     }
 
     /**
@@ -454,10 +632,17 @@ class WidgetConfigActivity : Activity() {
         WidgetPrefs.saveShowDecimals(this, appWidgetId, cbShowDecimals.isChecked)
         WidgetPrefs.saveSeparator(this, appWidgetId, selectedSeparator())
         WidgetPrefs.saveOpacity(this, appWidgetId, sbOpacity.progress)
-        WidgetPrefs.saveHideLogo(this, appWidgetId, cbHideLogo.isChecked)
-        WidgetPrefs.saveHideUnitLabel(this, appWidgetId, cbHideUnitLabel.isChecked)
+        // Invert at save: a checked "Show X" → hide=false on disk.
+        WidgetPrefs.saveHideLogo(this, appWidgetId, !cbShowLogo.isChecked)
+        WidgetPrefs.saveHideCurrencyIcon(this, appWidgetId, !cbShowCurrencyIcon.isChecked)
+        WidgetPrefs.saveHideUnitLabel(this, appWidgetId, !cbShowUnitLabel.isChecked)
         WidgetPrefs.saveChangeIndicator(this, appWidgetId, selectedChangeIndicator())
         WidgetPrefs.saveShowChart(this, appWidgetId, cbShowChart.isChecked)
+        // Always persist what the user set, even when the toggle is
+        // currently hidden — the formatter consults isMoscowTimeActive
+        // at render time, so a stored "true" with currency!=SATS does
+        // nothing visible until the user re-meets the unlock condition.
+        WidgetPrefs.saveMoscowTime(this, appWidgetId, cbMoscowTime.isChecked)
 
         val mgr = AppWidgetManager.getInstance(this)
         BitcoinPriceWidgetProvider.updateWidget(this, mgr, appWidgetId)

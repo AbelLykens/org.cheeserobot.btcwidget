@@ -9,4 +9,13 @@
     <!-- Slightly brighter green/red for legibility on dark backgrounds. -->
     <color name="change_up">#FF4CD964</color>
     <color name="change_down">#FFFF6B6B</color>
+
+    <!--
+        Sparkline on dark wallpaper at low alpha needs to start from
+        a much brighter base hue, otherwise the dark green/red of the
+        light theme blends into the background and the chart looks
+        like nothing was drawn at all.
+    -->
+    <color name="sparkline_up">#FF4CD964</color>
+    <color name="sparkline_down">#FFFF6B6B</color>
 </resources>

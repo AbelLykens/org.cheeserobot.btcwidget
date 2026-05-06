@@ -4,12 +4,20 @@
 
       FrameLayout (widget_root, transparent)
         ├─ ImageView (background_view) — fills root, runtime opacity
+        ├─ ImageView (sparkline_view)  — fills root, NO opacity slider
         └─ LinearLayout (vertical, fills root)
              ├─ TextView (unit_label)        — small "1 BTC" caption
              ├─ LinearLayout (content_row)   — icon + price, weight=1
              │     ├─ ImageView (btc_icon)
              │     └─ TextView (price_text)  — auto-sized
              └─ TextView (change_indicator)  — small red/green % line
+
+    Why two background ImageViews? The opacity slider must dim the
+    rounded panel (background_view) without dimming the sparkline.
+    Keeping them in separate ImageViews lets us call setImageAlpha
+    on background_view alone — sparkline_view stays fully visible
+    even at 0% panel opacity, exactly when the user wants the chart
+    to read against their wallpaper directly.
 
     Why unit_label is a SIBLING of content_row (not nested next to
     price_text in a column): putting it as a sibling above lets the
@@ -31,6 +39,20 @@
         android:contentDescription="@null"
         android:scaleType="fitXY"
         android:src="@drawable/widget_background" />
+
+    <!--
+        Sparkline lives on its OWN ImageView so the opacity slider
+        (which sets background_view's imageAlpha) doesn't fade the
+        chart out. At 0% panel opacity the line still reads against
+        the user's wallpaper.
+    -->
+    <ImageView
+        android:id="@+id/sparkline_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"

@@ -129,10 +129,25 @@ object SparklineRenderer {
      * Convenience wrapper: pick the right colour based on whether the
      * 7-day series is up or down. First and last values define the
      * direction; intermediate movement doesn't affect the colour.
+     *
+     * Kept for callers that want a baked-in colour. The widget
+     * provider goes through [isUp] instead so it can pull theme-aware
+     * hues from resources (which matter once the chart can sit
+     * directly on the user's wallpaper at 0 % panel opacity).
      */
     fun colorFor(values: DoubleArray): Int {
         if (values.size < 2) return COLOR_UP
         return if (values.last() >= values.first()) COLOR_UP else COLOR_DOWN
+    }
+
+    /**
+     * True when the 7-day series ended at or above where it started.
+     * Empty / single-sample inputs default to true — matches
+     * [colorFor]'s "flat counts as up" convention.
+     */
+    fun isUp(values: DoubleArray): Boolean {
+        if (values.size < 2) return true
+        return values.last() >= values.first()
     }
 
     /** Default stroke width in pixels. Caller can scale by display density. */

@@ -299,7 +299,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                     else result.priceOneWeekAgo
 
                     val displayed = effectivePrice * trackedAmount
-                    val text = PriceFormat.format(displayed, showDecimals, separator)
+                    val moscowTime = WidgetPrefs.loadMoscowTime(context, appWidgetId)
+                    val text = if (PriceFormat.isMoscowTimeActive(currency, separator, moscowTime))
+                        PriceFormat.formatMoscowTime(displayed)
+                    else
+                        PriceFormat.format(displayed, showDecimals, separator)
                     WidgetPrefs.recordSuccess(
                         context, appWidgetId, System.currentTimeMillis(),
                         priceText = text,
@@ -412,10 +416,16 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             val currency = WidgetPrefs.loadCurrency(context, appWidgetId)
             val symbol = WidgetPrefs.symbolFor(currency)
-            // SATS uses the icon slot for the glyph, so the text prefix
-            // is empty — skip the spacer space too.
-            val priceWithSymbol =
-                if (symbol.isEmpty()) priceText else "$symbol $priceText"
+            val hideCurrencyIcon = WidgetPrefs.loadHideCurrencyIcon(context, appWidgetId)
+            // SATS uses the icon slot for the glyph, so its text prefix
+            // is already empty. For USD/EUR/BTC the prefix is dropped
+            // when the user has hide-currency-icon turned on, otherwise
+            // we render "<symbol> <price>" with a single spacer.
+            val priceWithSymbol = when {
+                symbol.isEmpty() -> priceText
+                hideCurrencyIcon -> priceText
+                else -> "$symbol $priceText"
+            }
             views.setTextViewText(R.id.price_text, priceWithSymbol)
 
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
@@ -427,16 +437,25 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount, currency))
             }
 
+            // Two flags can suppress the icon slot:
+            //   - hideLogo: the legacy "hide bitcoin logo" toggle
+            //   - hideCurrencyIcon (SATS only): the new "hide currency
+            //     icon" toggle, which for SATS means the sat-symbol
+            //     because that PNG IS the currency marker in SATS mode.
+            // For non-SATS modes the currency marker is the text
+            // prefix on price_text (handled above), so this flag has
+            // no effect on the icon slot.
+            val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
             val hideLogo = WidgetPrefs.loadHideLogo(context, appWidgetId)
+            val iconHidden = hideLogo || (isSats && hideCurrencyIcon)
             views.setViewVisibility(
-                R.id.btc_icon, if (hideLogo) View.GONE else View.VISIBLE
+                R.id.btc_icon, if (iconHidden) View.GONE else View.VISIBLE
             )
 
             // Pick the icon family based on currency: SATS gets the
             // sat-symbol PNG; everything else gets the existing Bitcoin
             // logo. Each family has a "live" and a "grey" (stale/offline
             // /battery-saver) variant.
-            val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
             val iconRes = when (state) {
                 WidgetState.NORMAL ->
                     if (isSats) R.drawable.ic_sat_symbol else R.drawable.ic_bitcoin
@@ -448,25 +467,33 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val iconAlpha = if (state == WidgetState.NORMAL) ICON_ALPHA_NORMAL else ICON_ALPHA_GREY
             views.setInt(R.id.btc_icon, "setImageAlpha", iconAlpha)
 
-            // Optional faint 7-day sparkline behind the price text.
-            // Only painted in the NORMAL state — when stale/offline/
-            // battery-saver we use the static background drawable to
-            // match the greyed-out icon. A null result (chart disabled,
-            // no cached data, degenerate series) also falls back to the
-            // static drawable. We always set the source explicitly so
-            // the previous frame's bitmap can't bleed through.
+            // Background panel sits on background_view and respects the
+            // user's opacity slider (0 % = fully transparent panel).
+            // The sparkline lives on its OWN ImageView (sparkline_view)
+            // so the slider can dim the panel without dimming the chart
+            // — at 0 % opacity the line still needs to read against the
+            // wallpaper. We always set the panel's source explicitly
+            // so the previous frame's bitmap can't bleed through.
+            views.setImageViewResource(R.id.background_view, R.drawable.widget_background)
+            val opacityPct = WidgetPrefs.loadOpacity(context, appWidgetId)
+            val opacity255 = (opacityPct.coerceIn(0, 100) * 255 / 100)
+            views.setInt(R.id.background_view, "setImageAlpha", opacity255)
+
+            // Sparkline only paints in the NORMAL state — a stale /
+            // offline / battery-saver widget already greys its icon, and
+            // a stale chart would just lie about the trend. A null
+            // result (chart disabled, no cached data, degenerate series)
+            // hides the view entirely.
             val bmp = if (state == WidgetState.NORMAL)
                 buildSparklineBitmap(context, appWidgetId, currency)
             else null
             if (bmp != null) {
-                views.setImageViewBitmap(R.id.background_view, bmp)
+                views.setImageViewBitmap(R.id.sparkline_view, bmp)
+                views.setInt(R.id.sparkline_view, "setImageAlpha", 255)
+                views.setViewVisibility(R.id.sparkline_view, View.VISIBLE)
             } else {
-                views.setImageViewResource(R.id.background_view, R.drawable.widget_background)
+                views.setViewVisibility(R.id.sparkline_view, View.GONE)
             }
-
-            val opacityPct = WidgetPrefs.loadOpacity(context, appWidgetId)
-            val opacity255 = (opacityPct.coerceIn(0, 100) * 255 / 100)
-            views.setInt(R.id.background_view, "setImageAlpha", opacity255)
 
             renderChangeIndicator(context, views, appWidgetId, state)
 
@@ -580,10 +607,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
          *   - the cached body is corrupt or empty,
          *   - the resulting series is too short / flat to render.
          *
-         * The bitmap also paints the rounded panel (the widget_background
-         * shape) underneath the line, because setImageViewBitmap replaces
-         * the ImageView's src — there's no compositing with the static
-         * drawable that's normally there.
+         * The bitmap is just the line on a transparent canvas — the
+         * rounded panel lives on a separate ImageView so the user's
+         * opacity slider can dim the panel without touching the chart.
+         * Colours come from theme-qualified resources so the line
+         * stays legible on dark wallpaper too.
          */
         private fun buildSparklineBitmap(
             context: Context,
@@ -608,11 +636,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             } else raw
 
             val (widthPx, heightPx) = widgetPixelSize(context, appWidgetId)
-            val color = SparklineRenderer.colorFor(values)
+            val colorRes = if (SparklineRenderer.isUp(values))
+                R.color.sparkline_up else R.color.sparkline_down
+            val color = context.getColor(colorRes)
             val density = context.resources.displayMetrics.density
             val strokePx = (1.5f * density).coerceAtLeast(1.5f)
-            val cornerRadiusPx = 16f * density
-            val bgFill = context.getColor(R.color.widget_background_solid)
 
             return SparklineRenderer.render(
                 values = values,
@@ -620,8 +648,6 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 heightPx = heightPx,
                 color = color,
                 strokePx = strokePx,
-                backgroundFill = bgFill,
-                cornerRadiusPx = cornerRadiusPx,
             )
         }
 

@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Adaptive-icon background. Solid black so that when the launcher
-    clips the icon to its mask shape (circle / squircle / etc.) we get
-    a black silhouette behind the orange ring + "B" foreground —
-    matching the user's requested logo style.
+    Adaptive-icon background. Solid white so the orange ring and "B"
+    of the user-supplied btc.png foreground sit on a clean white
+    field — matching how the source image is drawn (orange marks on
+    white) and avoiding a dark halo around the logo when the launcher
+    masks the icon to a circle / squircle.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,6 +12,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#000000"
+        android:fillColor="#FFFFFF"
         android:pathData="M0,0h108v108h-108z" />
 </vector>

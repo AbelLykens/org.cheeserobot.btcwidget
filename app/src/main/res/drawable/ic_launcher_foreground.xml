@@ -1,83 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+<!--
+    Adaptive-icon foreground. The launcher renders the foreground at
+    108dp x 108dp but only guarantees that the central 66dp x 66dp
+    "safe zone" stays visible after masking (circle, squircle, …).
 
-    <!--
-        Adaptive icon foreground: orange ring + orange "B".
-
-        The 108×108 viewport must keep meaningful content inside the
-        66×66 safe zone (centered) so the launcher's mask doesn't crop
-        anything important. We size the ring at radius 32 from the
-        centre, which puts it just inside that safe zone.
-
-        The B character path is from the original Bitcoin Core mark
-        (designed in a 64×64 viewport) — we re-use it inside a group
-        translated to (22, 22) so the B's centre lands at (54, 54).
-    -->
-
-    <!-- Orange ring outline. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F7931A"
-        android:strokeWidth="5"
-        android:pathData="M86,54 A32,32 0 1,1 22,54 A32,32 0 1,1 86,54 Z" />
-
-    <!-- Orange "B" character, scaled into the centre of the ring. -->
-    <group
-        android:translateX="22"
-        android:translateY="22"
-        android:scaleX="1.0"
-        android:scaleY="1.0">
-        <path
-            android:fillColor="#F7931A"
-            android:pathData="M44.36,28.16
-                C45.04,23.71 41.66,21.32 37.04,19.72
-                L38.54,13.69
-                L34.87,12.78
-                L33.41,18.65
-                C32.45,18.41 31.46,18.18 30.48,17.96
-                L31.95,12.05
-                L28.28,11.14
-                L26.78,17.17
-                C25.99,16.99 25.21,16.81 24.45,16.62
-                L24.46,16.61
-                L19.39,15.34
-                L18.42,19.27
-                C18.42,19.27 21.15,19.89 21.09,19.93
-                C22.58,20.30 22.85,21.29 22.81,22.07
-                L21.10,28.94
-                C21.20,28.97 21.34,29.00 21.49,29.06
-                C21.36,29.03 21.22,29.00 21.09,28.97
-                L18.69,38.59
-                C18.51,39.05 18.04,39.73 16.99,39.47
-                C17.03,39.53 14.32,38.81 14.32,38.81
-                L12.5,43.02
-                L17.28,44.21
-                C18.17,44.43 19.04,44.67 19.90,44.89
-                L18.39,50.99
-                L22.05,51.90
-                L23.55,45.86
-                C24.55,46.13 25.52,46.38 26.47,46.62
-                L24.97,52.62
-                L28.65,53.53
-                L30.16,47.45
-                C36.41,48.63 41.11,48.16 43.09,42.51
-                C44.69,37.96 43.01,35.34 39.72,33.63
-                C42.12,33.07 43.93,31.49 44.41,28.18
-                L44.36,28.16
-                Z
-                M36.02,39.99
-                C34.89,44.55 27.21,42.08 24.72,41.46
-                L26.74,33.39
-                C29.23,34.01 37.21,35.24 36.02,39.99
-                Z
-                M37.16,28.10
-                C36.13,32.25 29.74,30.14 27.66,29.62
-                L29.49,22.30
-                C31.57,22.82 38.24,23.77 37.16,28.10
-                Z" />
-    </group>
-</vector>
+    ic_launcher_btc.png is the user-supplied bitcoin logo and would,
+    placed bare, fill the entire 108dp area — the orange ring would
+    touch the edges and get clipped on most launcher masks. Wrapping
+    it in a layer-list with insets ~16dp pulls the artwork into the
+    safe zone so the full ring is always visible.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:drawable="@drawable/ic_launcher_btc"
+        android:left="16dp"
+        android:top="16dp"
+        android:right="16dp"
+        android:bottom="16dp" />
+</layer-list>
