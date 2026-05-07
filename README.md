@@ -7,7 +7,7 @@ price at a glance. No accounts, no ads, no tracking — just the number.
 
 Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
 Zapstore: <https://zapstore.dev/apps/org.cheeserobot.btcwidget>
-Price feed: [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.org/price/latest.json)
+Price feed: [`https://cheeserobot.org/price/summary.json`](https://cheeserobot.org/price/summary.json)
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-home-screen.png"
@@ -32,8 +32,10 @@ Price feed: [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.or
 - **Optional 7-day chart background.** A faint sparkline of the last
   week behind the price text — green when the 7-day move is up, red
   when down. On by default; turn it off under Advanced options.
-- **USD, EUR, sats-per-USD, or `₿` mode** — pick which one you want when
-  you add the widget.
+- **USD, EUR, sats-per-USD, `₿`, or block-height mode** — pick which one
+  you want when you add the widget. Block mode shows the latest bitcoin
+  block number with the miner / pool name above and a diagonal "stonks
+  go up" line behind.
 - **Multiple widgets, multiple currencies**. Add it twice if you want both
   `$` and `€` side by side on your home screen.
 - **Auto-refresh** roughly every 30 minutes (Android's minimum for
@@ -165,15 +167,15 @@ Remove the widget and add a fresh one — it'll ask again.
 
 ## Privacy
 
-The widget contacts exactly one host: `cheeserobot.org`. Two `GET`
-requests are made:
+The widget contacts exactly one host: `cheeserobot.org`. Exactly one
+`GET` request is made per refresh:
 
-1. `https://cheeserobot.org/price/latest.json` — the current price,
-   every ~30 minutes and on tap.
-2. `https://cheeserobot.org/price/price-hist-7d.json` — the 7-day
-   history used for the optional sparkline background. Fetched at most
-   **once per hour**, regardless of how often you tap. Skipped entirely
-   when the chart toggle is off.
+1. `https://cheeserobot.org/price/summary.json` — a consolidated payload
+   carrying the current USD/EUR price, the 24-hour and 7-day history
+   series, and the latest bitcoin block (height + miner). Fetched every
+   ~30 minutes and on tap. Earlier versions made up to three separate
+   calls (`/price/latest.json`, `/price/price-hist-1d.json`,
+   `/price/price-hist-7d.json`); they're all rolled into this one now.
 
 No analytics, no telemetry, no ad networks, no account required.
 
@@ -219,8 +221,15 @@ CheeseWidget/
         ├── AndroidManifest.xml
         ├── java/org/cheeserobot/btcwidget/
         │   ├── BitcoinPriceWidgetProvider.kt   # AppWidgetProvider, drives updates
-        │   ├── WidgetConfigActivity.kt          # USD/EUR picker shown on Add
-        │   ├── PriceFetcher.kt                  # HTTPS fetch + JSON parse
+        │   ├── WidgetConfigActivity.kt          # Currency / mode picker shown on Add
+        │   ├── SummaryFetcher.kt                # Unified summary.json fetch + parse
+        │   ├── PriceFetcher.kt                  # Currency-key lookup utilities
+        │   ├── HistoryFetcher.kt                # History-array parser (chart cache)
+        │   ├── SparklineRenderer.kt             # Bitmap chart drawing (line / flat / diagonal)
+        │   ├── PriceFormat.kt                   # Locale-aware price formatting
+        │   ├── LauncherActivity.kt              # "Add to home screen" launcher
+        │   ├── BatterySaverInfoActivity.kt      # Battery-saver tap target
+        │   ├── Notifier.kt                      # (legacy notification helper)
         │   └── WidgetPrefs.kt                   # SharedPreferences helper
         └── res/
             ├── layout/widget_bitcoin_price.xml  # The widget itself
@@ -239,13 +248,20 @@ CheeseWidget/
 
 ## How the price is fetched
 
-`PriceFetcher.fetchPrice("USD")` does a plain `HttpURLConnection` GET on
-`https://cheeserobot.org/price/latest.json` and walks the resulting JSON
-recursively for a key matching the requested currency (case-insensitive).
-That keeps the parser robust whether the API returns
-`{"usd": 65000, "eur": 60000}`, `{"prices": {...}}`, or a Coingecko-style
-`{"bitcoin": {...}}` shape. The value is rounded to the nearest whole
-number with locale-appropriate thousands separators.
+`SummaryFetcher.fetchSummary()` does a plain `HttpURLConnection` GET on
+`https://cheeserobot.org/price/summary.json` and parses the unified
+payload into:
+
+- the current USD / EUR price (used as-is, or inverted to sats),
+- two history arrays (24h hourly, 7d four-hourly) that drive the
+  optional chart background and the price-change indicator,
+- a latest-block snapshot (height + miner) for the block-height widget.
+
+The price extractor walks the inner `price` object recursively for a key
+matching the requested currency (case-insensitive), so the parser stays
+robust whether the API returns `{"price_usd": 65000}`, `{"usd": 65000}`,
+or any nested variant. Numbers are rounded to whole values for display,
+with locale-appropriate thousands separators.
 
 If the network call fails the widget shows `!`, posts a system notification
 with the actual error (network exception, HTTP status + body snippet, JSON

@@ -126,6 +126,47 @@ object SparklineRenderer {
     }
 
     /**
+     * Draw a single straight diagonal line from the bottom-left to the
+     * top-right of the canvas. Used by BLOCK-mode widgets, where the
+     * value being shown (block height) only ever increases — the line
+     * is the visual joke, the same shape the BTC-mode flat line plays
+     * for the "1 BTC = 1 BTC" gag. Returns null only when the requested
+     * canvas is non-positive.
+     */
+    fun renderDiagonal(
+        widthPx: Int,
+        heightPx: Int,
+        color: Int,
+        lineAlpha: Int = DEFAULT_LINE_ALPHA,
+        strokePx: Float = DEFAULT_STROKE_PX,
+    ): Bitmap? {
+        if (widthPx <= 0 || heightPx <= 0) return null
+        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = strokePx
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            this.color = (color and 0x00FFFFFF) or
+                (lineAlpha.coerceIn(0, 255) shl 24)
+        }
+        // Match the same vertical breathing room [render] uses so the
+        // diagonal sits visually in the same plot area a real series
+        // would occupy. Horizontal padding mirrors strokePx so the line
+        // doesn't get clipped at either end.
+        val padTop = (heightPx * 0.10f).coerceAtLeast(2f)
+        val padBottom = (heightPx * 0.10f).coerceAtLeast(2f)
+        val padHoriz = strokePx
+        val x0 = padHoriz
+        val y0 = heightPx - padBottom
+        val x1 = widthPx - padHoriz
+        val y1 = padTop
+        canvas.drawLine(x0, y0, x1, y1, paint)
+        return bmp
+    }
+
+    /**
      * Draw a single flat horizontal line centred vertically. Used by
      * BTC-mode widgets, where there's no fetch and no historical
      * series — "1 BTC has always been worth 1 BTC" deserves a line

@@ -28,12 +28,13 @@ import java.util.Locale
  *                  as BatterySaverInfoActivity).
  *   - onDeleted  - clean up per-widget prefs.
  *
- * Refresh-all + batched fetch:
- *   The cheeserobot.org feed returns USD and EUR (plus all historical
- *   variants) in a single JSON. So a tap on ANY widget triggers a
- *   refresh of every widget on the device, sharing one HTTP round-trip
- *   across all of them. This keeps multi-widget setups in sync and
- *   avoids redundant network calls.
+ * Refresh-all + single-endpoint fetch:
+ *   Every widget on the device shares one HTTP call to
+ *   `/price/summary.json`, which carries the current USD/EUR price,
+ *   the 24h and 7d historical arrays, and the latest-block snapshot
+ *   in one payload. This used to be three separate endpoints; the
+ *   consolidation cuts our hourly fetch budget by 3× and keeps every
+ *   widget on the device in lock-step regardless of mode.
  *
  * 15-second rate limit:
  *   User-triggered refreshes (taps, "Refresh existing widgets" button)
@@ -154,9 +155,9 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
          * Refresh a batch of widgets with a shared network fetch.
          *
          * - BTC-mode widgets are painted directly (no network).
-         * - Network widgets get a "loading" frame, then a single fetch
-         *   covers every distinct currency, then each widget renders
-         *   from its currency's slot in the result map.
+         * - Every other widget mode (USD, EUR, SATS, BLOCK) rides on a
+         *   single `/price/summary.json` round trip — one fetch, all
+         *   data: prices, history, and the latest-block snapshot.
          */
         private fun refreshWidgets(
             context: Context,
@@ -194,24 +195,46 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 )
             }
 
-            // SATS widgets ride on the USD fetch — the upstream JSON
-            // doesn't carry sats directly, we just invert the USD price.
-            val currencies = networkIds
-                .map { upstreamCurrencyFor(WidgetPrefs.loadCurrency(context, it)) }
-                .toSet()
-
             // Mark the attempt up-front so a second tap arriving while
             // we're still on the wire sees the rate limit and bails.
             WidgetPrefs.markNetworkAttempt(context)
 
-            val results = fetchPricesWithRetry(currencies)
+            // SATS widgets ride on the USD fetch — the upstream JSON
+            // doesn't carry sats directly, we just invert the USD price.
+            // BLOCK widgets don't need a price at all but go through the
+            // same summary fetch since that endpoint also carries the
+            // block snapshot.
+            val currencies = networkIds
+                .map { upstreamCurrencyFor(WidgetPrefs.loadCurrency(context, it)) }
+                .toSet()
 
-            // Best-effort: refresh the (optional) 24h / 7d price history
-            // at most once per hour each, only for the windows actually
-            // needed by some placed chart-enabled widget. Runs on the
-            // same IO thread we're already on. A failure here never
-            // affects the price render.
-            maybeRefreshHistory(context, networkIds.toIntArray())
+            val summary = fetchSummaryWithRetry()
+            val results = buildPriceResults(currencies, summary)
+
+            if (summary is SummaryResult.Success) {
+                // The summary endpoint ships the same array shape the
+                // chart code already understands, so we drop hist_1d and
+                // hist_7d straight into the existing per-period cache.
+                // No more separate endpoint fetches.
+                val now = System.currentTimeMillis()
+                WidgetPrefs.saveHistoryJson(
+                    context, WidgetPrefs.HISTORY_1D, summary.summary.hist1dJson, now
+                )
+                WidgetPrefs.saveHistoryJson(
+                    context, WidgetPrefs.HISTORY_7D, summary.summary.hist7dJson, now
+                )
+                // Cache the latest-block snapshot so BLOCK-mode widgets
+                // can render even without a brand-new fetch on the next
+                // paint (e.g. after a battery-saver bypass).
+                summary.summary.latestBlock?.let { block ->
+                    WidgetPrefs.saveLatestBlock(
+                        context,
+                        height = block.height,
+                        minerName = block.minerName,
+                        time = block.time,
+                    )
+                }
+            }
 
             // Cache the latest fetched USD/EUR prices globally so the
             // chart renderer can append a "now" point on the right
@@ -221,6 +244,69 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             for (id in networkIds) {
                 renderResult(context, mgr, id, results)
+            }
+        }
+
+        /**
+         * Try once, and if the summary fetch failed wait [RETRY_DELAY_MS]
+         * and try again. Mirrors the old [fetchPricesWithRetry] semantics
+         * but for the consolidated endpoint.
+         */
+        private fun fetchSummaryWithRetry(): SummaryResult {
+            val first = SummaryFetcher.fetchSummary()
+            if (first is SummaryResult.Success) return first
+            try { Thread.sleep(RETRY_DELAY_MS) } catch (_: InterruptedException) {}
+            return SummaryFetcher.fetchSummary()
+        }
+
+        /**
+         * Project the unified summary back into the per-currency shape
+         * the existing rendering pipeline expects. The block widgets are
+         * special: they have no real "price" — we synthesise a
+         * [PriceResult.Success] carrying the block height as the price
+         * so the rest of the render path stays uniform.
+         */
+        private fun buildPriceResults(
+            currencies: Collection<String>,
+            result: SummaryResult,
+        ): Map<String, PriceResult> {
+            if (currencies.isEmpty()) return emptyMap()
+            return when (result) {
+                is SummaryResult.Error -> {
+                    val err = PriceResult.Error(result.reason, result.cause)
+                    currencies.associateWith { err }
+                }
+                is SummaryResult.Success -> {
+                    val s = result.summary
+                    currencies.associateWith { ccy ->
+                        when (ccy.uppercase(Locale.ROOT)) {
+                            WidgetPrefs.CURRENCY_BLOCK -> {
+                                val height = s.latestBlock?.height
+                                if (height == null) {
+                                    PriceResult.Error("No latest_block in summary")
+                                } else {
+                                    PriceResult.Success(
+                                        price = height.toDouble(),
+                                        priceOneDayAgo = null,
+                                        priceOneWeekAgo = null,
+                                    )
+                                }
+                            }
+                            else -> {
+                                val current = s.currentPrice(ccy)
+                                if (current == null) {
+                                    PriceResult.Error("No \"$ccy\" in summary")
+                                } else {
+                                    PriceResult.Success(
+                                        price = current,
+                                        priceOneDayAgo = s.oneDayAgoPrice(ccy),
+                                        priceOneWeekAgo = s.oneWeekAgoPrice(ccy),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -242,75 +328,19 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         /**
-         * Minimum gap between successful price-history fetches per
-         * window. The upstream endpoints change slowly (server-side
-         * updates are coarse-grained too), so an hour is plenty.
-         * Applies to both the 24h and 7d JSON files independently.
+         * For network-backed widgets, what currency key in the unified
+         * summary do we actually need? SATS rides on the USD price slot
+         * (the JSON doesn't ship sats directly — we invert at render
+         * time); BLOCK uses its own slot since the price field isn't
+         * meaningful for it; everything else maps to itself.
          */
-        private const val HISTORY_REFRESH_INTERVAL_MS = 60L * 60L * 1000L
-
-        /**
-         * Refresh whichever price-history caches are stale (>1h old)
-         * and actually needed by some placed widget. We compute the
-         * union of windows currently selected across all non-BTC
-         * widgets that have the chart turned on — i.e. only fetch the
-         * 24h JSON if at least one widget is set to 24h-with-chart,
-         * and likewise for 7d. Failures are silent; the next tick can
-         * retry. Bytes saved: charts that are off entirely no longer
-         * pull either endpoint.
-         */
-        private fun maybeRefreshHistory(context: Context, ids: IntArray) {
-            if (!hasNetwork(context)) return
-            val now = System.currentTimeMillis()
-            val needed = neededHistoryPeriods(context, ids)
-            for (period in needed) {
-                val last = WidgetPrefs.loadLastHistoryAt(context, period)
-                if (last > 0 && (now - last) < HISTORY_REFRESH_INTERVAL_MS) continue
-                when (val r = HistoryFetcher.fetchHistory(period)) {
-                    is HistoryResult.Success -> {
-                        WidgetPrefs.saveHistoryJson(context, period, r.rawBody, now)
-                    }
-                    is HistoryResult.Error -> {
-                        // Non-fatal: leave existing cache alone (or empty),
-                        // the next tick can retry.
-                    }
-                }
-            }
+        private fun upstreamCurrencyFor(currency: String): String = when {
+            currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true) ->
+                WidgetPrefs.CURRENCY_USD
+            currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true) ->
+                WidgetPrefs.CURRENCY_BLOCK
+            else -> currency
         }
-
-        /**
-         * Set of history windows ([WidgetPrefs.HISTORY_1D] /
-         * [WidgetPrefs.HISTORY_7D]) needed across all placed widgets.
-         * Only widgets that have the chart enabled and aren't in BTC-mode
-         * contribute — BTC has no historical to draw, and chart-off
-         * widgets never read the cache.
-         */
-        private fun neededHistoryPeriods(
-            context: Context,
-            ids: IntArray,
-        ): Set<String> {
-            val out = mutableSetOf<String>()
-            for (id in ids) {
-                val ccy = WidgetPrefs.loadCurrency(context, id)
-                if (ccy.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) continue
-                if (!WidgetPrefs.loadShowChart(context, id)) continue
-                val mode = WidgetPrefs.loadChangeIndicator(context, id)
-                out.add(
-                    if (mode == WidgetPrefs.CHANGE_1W) WidgetPrefs.HISTORY_7D
-                    else WidgetPrefs.HISTORY_1D
-                )
-            }
-            return out
-        }
-
-        /**
-         * For network-backed widgets, what currency key in the upstream
-         * JSON do we actually need? SATS rides on the USD price so its
-         * fetch slot is "USD"; everything else maps to itself.
-         */
-        private fun upstreamCurrencyFor(currency: String): String =
-            if (currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true))
-                WidgetPrefs.CURRENCY_USD else currency
 
         /**
          * Number of satoshis in one bitcoin. SATS-mode displays
@@ -337,12 +367,36 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val separator = WidgetPrefs.loadSeparator(context, appWidgetId)
 
             val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
+            val isBlock = currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)
             val lookupKey = upstreamCurrencyFor(currency)
             val result = results[lookupKey]
                 ?: PriceResult.Error("No result for \"$currency\"")
 
             when (result) {
                 is PriceResult.Success -> {
+                    // BLOCK mode: the "price" is actually the block
+                    // height. Tracked-amount, decimals, and Moscow Time
+                    // are all meaningless for an integer count, so we
+                    // bypass them. The thousands separator setting is
+                    // honoured because "948,347" reads better at a
+                    // glance than "948347".
+                    if (isBlock) {
+                        val height = result.price
+                        val text = PriceFormat.format(height, showDecimals = false, separator)
+                        WidgetPrefs.recordSuccess(
+                            context, appWidgetId, System.currentTimeMillis(),
+                            priceText = text,
+                            rawPrice = height,
+                            oneDayAgo = null,
+                            oneWeekAgo = null,
+                        )
+                        val state = computeState(context, appWidgetId, hasFreshPrice = true)
+                        mgr.updateAppWidget(
+                            appWidgetId, buildViews(context, text, appWidgetId, state)
+                        )
+                        return
+                    }
+
                     // SATS inverts: BTC->USD price becomes USD->sats.
                     // For sats we also recompute the historical legs from
                     // the USD historicals so the change indicator stays
@@ -420,19 +474,6 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         /**
-         * Try once, and if EVERY currency failed wait [RETRY_DELAY_MS]
-         * and try again. Partial successes don't trigger a retry.
-         */
-        private fun fetchPricesWithRetry(
-            currencies: Collection<String>,
-        ): Map<String, PriceResult> {
-            val first = PriceFetcher.fetchPrices(currencies)
-            if (first.values.any { it is PriceResult.Success }) return first
-            try { Thread.sleep(RETRY_DELAY_MS) } catch (_: InterruptedException) {}
-            return PriceFetcher.fetchPrices(currencies)
-        }
-
-        /**
          * Public hook used by the configuration activity right after the
          * user saves their settings. Bypasses the user-tap rate limit
          * because the user just deliberately changed something.
@@ -491,18 +532,39 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             // the whole widget reads as "not live" — not just the icon.
             // Kept lighter than the icon's alpha (90/255) so the price
             // stays comfortably legible at a glance.
+            //
+            // The base colour is the user's chosen swatch when they set
+            // one, otherwise the theme default (R.color.widget_text). The
+            // dim is a pure alpha multiply so the chosen hue is preserved
+            // through stale/offline states — earlier versions hard-coded
+            // R.color.widget_text here, so a failed refresh always looked
+            // grey regardless of the user's pick.
             val textAlpha = if (state == WidgetState.NORMAL) 1.0f else 0.6f
-            val baseTextColor = context.getColor(R.color.widget_text)
+            val savedColor = WidgetPrefs.loadPriceTextColor(context, appWidgetId)
+            val baseTextColor = if (savedColor == WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT)
+                context.getColor(R.color.widget_text) else savedColor
             val dimmedTextColor = applyAlpha(baseTextColor, textAlpha)
             views.setTextColor(R.id.price_text, dimmedTextColor)
 
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
+            val isBlock = currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)
             val hideUnit = WidgetPrefs.loadHideUnitLabel(context, appWidgetId)
             views.setViewVisibility(
                 R.id.unit_label, if (hideUnit) View.GONE else View.VISIBLE
             )
             if (!hideUnit) {
-                views.setTextViewText(R.id.unit_label, formatUnitLabel(trackedAmount, currency))
+                // BLOCK mode commandeers the unit-label slot for the
+                // miner / pool name (e.g. "SpiderPool"). Falls back to
+                // a localised "Unknown miner" if the upstream didn't
+                // identify the block's miner — better than rendering
+                // empty space at the top of the widget.
+                val unitText = if (isBlock) {
+                    WidgetPrefs.loadLatestBlockMiner(context)
+                        ?: context.getString(R.string.block_miner_unknown)
+                } else {
+                    formatUnitLabel(trackedAmount, currency)
+                }
+                views.setTextViewText(R.id.unit_label, unitText)
                 views.setTextColor(R.id.unit_label, dimmedTextColor)
             }
 
@@ -588,6 +650,16 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int,
             state: WidgetState,
         ) {
+            // BLOCK mode has no notion of a "change %" — the diagonal
+            // sparkline already says block height keeps going up.
+            // Suppress the indicator entirely instead of trying to
+            // surface a meaningless number at the bottom.
+            val ccy = WidgetPrefs.loadCurrency(context, appWidgetId)
+            if (ccy.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)) {
+                views.setViewVisibility(R.id.change_indicator, View.GONE)
+                return
+            }
+
             val mode = WidgetPrefs.loadChangeIndicator(context, appWidgetId)
             val current = WidgetPrefs.loadLastRawPrice(context, appWidgetId)
             val historical = when (mode) {
@@ -725,6 +797,24 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 )
             }
 
+            // BLOCK mode: block height only ever climbs, so the chart
+            // is a deliberate stylised diagonal going from bottom-left
+            // to top-right. Same "the line is the joke" treatment as
+            // BTC mode's flat line; bypasses every cache and series
+            // code path.
+            if (currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)) {
+                val (widthPx, heightPx) = widgetPixelSize(context, appWidgetId)
+                val color = context.getColor(R.color.sparkline_up)
+                val density = context.resources.displayMetrics.density
+                val strokePx = (1.5f * density).coerceAtLeast(1.5f)
+                return SparklineRenderer.renderDiagonal(
+                    widthPx = widthPx,
+                    heightPx = heightPx,
+                    color = color,
+                    strokePx = strokePx,
+                )
+            }
+
             val mode = WidgetPrefs.loadChangeIndicator(context, appWidgetId)
             val period = if (mode == WidgetPrefs.CHANGE_1W)
                 WidgetPrefs.HISTORY_7D else WidgetPrefs.HISTORY_1D
@@ -740,7 +830,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             // Append the latest fetched upstream price (USD/EUR) as the
             // rightmost data point. Stored globally by the provider on
-            // every successful PriceFetcher round trip; null only on the
+            // every successful summary.json round trip; null only on the
             // very first launch or when no widget has fetched the
             // chart's base currency yet.
             val latestBase = WidgetPrefs.loadLatestUpstreamPrice(context, baseCurrency)

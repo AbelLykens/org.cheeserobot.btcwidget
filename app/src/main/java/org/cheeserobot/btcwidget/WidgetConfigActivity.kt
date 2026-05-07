@@ -11,6 +11,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -53,12 +54,21 @@ class WidgetConfigActivity : Activity() {
     private var appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
     private var isReconfigure: Boolean = false
 
+    /**
+     * Guards [finish] against re-entering the persist path more than
+     * once per activity lifecycle. Without this, an exotic finish()
+     * call sequence could write the prefs twice and trigger two widget
+     * updates back-to-back.
+     */
+    private var hasPersisted: Boolean = false
+
     // Currency (simple section)
     private lateinit var rgCurrency: RadioGroup
     private lateinit var rbUsd: RadioButton
     private lateinit var rbEur: RadioButton
     private lateinit var rbBtc: RadioButton
     private lateinit var rbSats: RadioButton
+    private lateinit var rbBlock: RadioButton
 
     // Advanced toggle + container
     private lateinit var advancedToggle: TextView
@@ -70,6 +80,12 @@ class WidgetConfigActivity : Activity() {
     private lateinit var spSeparator: Spinner
     private lateinit var sbOpacity: SeekBar
     private lateinit var opacityValue: TextView
+    // Container groups, used to hide whole option blocks (label + control
+    // + hint) when the chosen currency makes them irrelevant — e.g. the
+    // tracked-amount editor is meaningless for BLOCK mode.
+    private lateinit var groupTrackedAmount: View
+    private lateinit var groupNumberFormat: View
+    private lateinit var groupPriceChange: View
     // All four toggles are user-affirmative ("Show X"). The underlying
     // SharedPreferences keys are still KEY_HIDE_* — we invert at every
     // load and save so that storing a checked CheckBox writes hide=false.
@@ -88,6 +104,24 @@ class WidgetConfigActivity : Activity() {
      */
     private lateinit var cbMoscowTime: CheckBox
 
+    // ---- Price text colour picker ----------------------------------------
+    //
+    // The swatches are plain Views (the "default" one is a FrameLayout
+    // wrapping a TextView with the letter "A"). Each gets its background
+    // drawable assigned programmatically — a filled circle in the swatch's
+    // colour, with a thicker stroke when it's the currently selected one.
+    // selectedPriceColor holds the chosen ARGB int; PRICE_TEXT_COLOR_DEFAULT
+    // (== 0) means "no override, follow theme".
+    private lateinit var colorSwatchDefault: View
+    private lateinit var colorSwatchDefaultLabel: TextView
+    private lateinit var colorSwatchBlack: View
+    private lateinit var colorSwatchWhite: View
+    private lateinit var colorSwatchOrange: View
+    private lateinit var colorSwatchRed: View
+    private lateinit var colorSwatchGreen: View
+    private lateinit var colorSwatchBlue: View
+    private var selectedPriceColor: Int = WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT
+
     // Preview views (looked up inside preview_container)
     private lateinit var previewContainer: FrameLayout
     private lateinit var previewBackground: ImageView
@@ -104,6 +138,24 @@ class WidgetConfigActivity : Activity() {
         WidgetPrefs.SEPARATOR_DOT,
         WidgetPrefs.SEPARATOR_SPACE,
         WidgetPrefs.SEPARATOR_NONE,
+    )
+
+    /**
+     * Colours offered in the price-text colour picker. The first entry is
+     * the "default" sentinel (== 0): when selected the widget falls back
+     * to the theme colour at render time. The remaining swatches are
+     * literal ARGB ints and override the theme regardless of light/dark
+     * mode. Order here drives both the on-screen swatch order and the
+     * fill colour for each swatch.
+     */
+    private val priceColorOptions = listOf(
+        WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT,
+        0xFF000000.toInt(), // black
+        0xFFFFFFFF.toInt(), // white
+        0xFFF7931A.toInt(), // bitcoin orange
+        0xFFD32F2F.toInt(), // red
+        0xFF388E3C.toInt(), // green
+        0xFF1976D2.toInt(), // blue
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -135,8 +187,12 @@ class WidgetConfigActivity : Activity() {
         showVersionFooter()
         updatePreview()
 
-        findViewById<Button>(R.id.btn_save).setOnClickListener { persistAndFinish() }
-        findViewById<Button>(R.id.btn_cancel).setOnClickListener { finish() }
+        // The single "Done" button is now just an explicit close — the
+        // actual persistence happens inside the overridden finish(), so
+        // the system back button and the Done button take exactly the
+        // same path. Keeping the button gives users a visible confirm
+        // affordance even though it's no longer strictly required.
+        findViewById<Button>(R.id.btn_done).setOnClickListener { finish() }
     }
 
     private fun bindViews() {
@@ -145,6 +201,7 @@ class WidgetConfigActivity : Activity() {
         rbEur = findViewById(R.id.rb_eur)
         rbBtc = findViewById(R.id.rb_btc)
         rbSats = findViewById(R.id.rb_sats)
+        rbBlock = findViewById(R.id.rb_block)
 
         advancedToggle = findViewById(R.id.advanced_toggle)
         advancedSection = findViewById(R.id.advanced_section)
@@ -154,6 +211,9 @@ class WidgetConfigActivity : Activity() {
         spSeparator = findViewById(R.id.sp_separator)
         sbOpacity = findViewById(R.id.sb_opacity)
         opacityValue = findViewById(R.id.opacity_value)
+        groupTrackedAmount = findViewById(R.id.group_tracked_amount)
+        groupNumberFormat = findViewById(R.id.group_number_format)
+        groupPriceChange = findViewById(R.id.group_price_change)
         cbShowLogo = findViewById(R.id.cb_show_logo)
         cbShowCurrencyIcon = findViewById(R.id.cb_show_currency_icon)
         cbShowUnitLabel = findViewById(R.id.cb_show_unit_label)
@@ -162,6 +222,15 @@ class WidgetConfigActivity : Activity() {
         rbChange1d = findViewById(R.id.rb_change_1d)
         rbChange1w = findViewById(R.id.rb_change_1w)
         cbMoscowTime = findViewById(R.id.cb_moscow_time)
+
+        colorSwatchDefault = findViewById(R.id.color_swatch_default)
+        colorSwatchDefaultLabel = findViewById(R.id.color_swatch_default_label)
+        colorSwatchBlack = findViewById(R.id.color_swatch_black)
+        colorSwatchWhite = findViewById(R.id.color_swatch_white)
+        colorSwatchOrange = findViewById(R.id.color_swatch_orange)
+        colorSwatchRed = findViewById(R.id.color_swatch_red)
+        colorSwatchGreen = findViewById(R.id.color_swatch_green)
+        colorSwatchBlue = findViewById(R.id.color_swatch_blue)
 
         previewContainer = findViewById(R.id.preview_container)
         previewBackground = previewContainer.findViewById(R.id.background_view)
@@ -227,6 +296,7 @@ class WidgetConfigActivity : Activity() {
             WidgetPrefs.CURRENCY_EUR -> rbEur.isChecked = true
             WidgetPrefs.CURRENCY_BTC -> rbBtc.isChecked = true
             WidgetPrefs.CURRENCY_SATS -> rbSats.isChecked = true
+            WidgetPrefs.CURRENCY_BLOCK -> rbBlock.isChecked = true
             else -> rbUsd.isChecked = true
         }
 
@@ -266,6 +336,16 @@ class WidgetConfigActivity : Activity() {
         cbMoscowTime.isChecked = WidgetPrefs.loadMoscowTime(this, appWidgetId)
         applyMoscowTimeVisibility()
 
+        // Restore the saved colour swatch selection (or default sentinel)
+        // and paint the row so the right swatch carries the active ring.
+        selectedPriceColor = WidgetPrefs.loadPriceTextColor(this, appWidgetId)
+        renderColorSwatches()
+
+        // Initial pass over the per-mode visibility rules — hides the
+        // option groups that don't apply to whatever currency was just
+        // restored from prefs (e.g. tracked-amount editor in BLOCK mode).
+        applyCurrencyVisibility()
+
         // Auto-expand advanced when any advanced field is non-default.
         // Only relevant for reconfigure; fresh widgets have no prefs and
         // every setting reads as default.
@@ -285,6 +365,7 @@ class WidgetConfigActivity : Activity() {
         if (WidgetPrefs.loadChangeIndicator(this, appWidgetId) != WidgetPrefs.DEFAULT_CHANGE_INDICATOR) return true
         if (WidgetPrefs.loadShowChart(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_CHART) return true
         if (WidgetPrefs.loadMoscowTime(this, appWidgetId) != WidgetPrefs.DEFAULT_MOSCOW_TIME) return true
+        if (WidgetPrefs.loadPriceTextColor(this, appWidgetId) != WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT) return true
         return false
     }
 
@@ -315,6 +396,7 @@ class WidgetConfigActivity : Activity() {
 
     private fun wirePreviewListeners() {
         rgCurrency.setOnCheckedChangeListener { _, _ ->
+            applyCurrencyVisibility()
             applyMoscowTimeVisibility()
             updatePreview()
         }
@@ -337,6 +419,116 @@ class WidgetConfigActivity : Activity() {
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: Editable?) { updatePreview() }
         })
+        wireColorSwatchListeners()
+    }
+
+    /**
+     * Wire each swatch View to set [selectedPriceColor] and re-render
+     * both the swatch row (so the selection ring follows the click) and
+     * the preview (so the price text colour updates immediately).
+     */
+    private fun wireColorSwatchListeners() {
+        val swatches = colorSwatches()
+        for ((index, view) in swatches.withIndex()) {
+            val color = priceColorOptions[index]
+            view.setOnClickListener {
+                selectedPriceColor = color
+                renderColorSwatches()
+                updatePreview()
+            }
+        }
+    }
+
+    /**
+     * Returns the swatch Views in the same order as [priceColorOptions]
+     * so callers can zip the two lists by index without juggling ids.
+     */
+    private fun colorSwatches(): List<View> = listOf(
+        colorSwatchDefault,
+        colorSwatchBlack,
+        colorSwatchWhite,
+        colorSwatchOrange,
+        colorSwatchRed,
+        colorSwatchGreen,
+        colorSwatchBlue,
+    )
+
+    /**
+     * Paint each swatch with its colour (or the theme text colour, for
+     * the "default" swatch) and overlay a thicker stroke on whichever
+     * one matches [selectedPriceColor]. Called on initial bind, on every
+     * swatch tap, and after configuration changes that flip the theme
+     * (so the default swatch follows light/dark mode).
+     */
+    private fun renderColorSwatches() {
+        val density = resources.displayMetrics.density
+        val selectedStrokePx = (3 * density).toInt().coerceAtLeast(2)
+        val unselectedStrokePx = (1 * density).toInt().coerceAtLeast(1)
+        val selectedStrokeColor = getColor(R.color.bitcoin_orange)
+        val unselectedStrokeColor = 0x66888888.toInt()
+        val themeTextColor = getColor(R.color.widget_text)
+
+        val swatches = colorSwatches()
+        for ((index, view) in swatches.withIndex()) {
+            val color = priceColorOptions[index]
+            val fill = if (color == WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT)
+                themeTextColor else color
+            val isSelected = color == selectedPriceColor
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(fill)
+                setStroke(
+                    if (isSelected) selectedStrokePx else unselectedStrokePx,
+                    if (isSelected) selectedStrokeColor else unselectedStrokeColor,
+                )
+            }
+            view.background = drawable
+        }
+        // The "default" swatch carries an "A" label whose own colour
+        // needs to contrast with the swatch fill (the theme text colour),
+        // i.e. it should match the widget background — that way the
+        // letter reads as inverted text on the chip.
+        colorSwatchDefaultLabel.setTextColor(getColor(R.color.widget_background_solid))
+    }
+
+    /**
+     * Hide controls that don't apply to the currently selected currency.
+     *
+     * BLOCK mode is the most aggressive cull — block height isn't a
+     * scaled price, so tracked amount, decimals, separator, currency
+     * icon, and the price-change indicator all get hidden. The unit
+     * caption toggle stays visible but its label flips to "Show miner
+     * name" since BLOCK reuses the slot for the pool / miner.
+     *
+     * BTC mode hides only the price-change indicator: 1 BTC has always
+     * been worth 1 BTC, so a 24h % move is meaningless.
+     *
+     * Every other mode (USD/EUR/SATS) shows everything. Called on
+     * initial bind and on every currency-radio change.
+     */
+    private fun applyCurrencyVisibility() {
+        val currency = selectedCurrency()
+        val isBlock = currency == WidgetPrefs.CURRENCY_BLOCK
+        val isBtc = currency == WidgetPrefs.CURRENCY_BTC
+
+        groupTrackedAmount.visibility = if (isBlock) View.GONE else View.VISIBLE
+        groupNumberFormat.visibility = if (isBlock) View.GONE else View.VISIBLE
+        cbShowDecimals.visibility = if (isBlock) View.GONE else View.VISIBLE
+        cbShowCurrencyIcon.visibility = if (isBlock) View.GONE else View.VISIBLE
+
+        // Relabel the unit-caption toggle so BLOCK users read it as
+        // "Show miner name". The underlying preference key is the same
+        // (KEY_HIDE_UNIT_PREFIX) — only the visible string changes.
+        cbShowUnitLabel.setText(
+            if (isBlock) R.string.config_show_miner_name
+            else R.string.config_show_unit_label
+        )
+
+        // Hide the change-indicator block for currencies where it has
+        // no meaningful reading. For BTC the historical is always 1; for
+        // BLOCK the diagonal sparkline already says "only goes up".
+        groupPriceChange.visibility =
+            if (isBlock || isBtc) View.GONE else View.VISIBLE
     }
 
     /**
@@ -364,6 +556,7 @@ class WidgetConfigActivity : Activity() {
      */
     private fun updatePreview() {
         val currency = selectedCurrency()
+        val isBlock = currency == WidgetPrefs.CURRENCY_BLOCK
         val tracked = parsedTrackedAmount()
         val showDecimals = cbShowDecimals.isChecked
         val separator = selectedSeparator()
@@ -373,12 +566,20 @@ class WidgetConfigActivity : Activity() {
         val opacity = sbOpacity.progress.coerceIn(0, 100)
 
         val (samplePrice, sampleOneDay, sampleOneWeek) = sampleData(currency)
-        val displayed = samplePrice * tracked
+        // BLOCK mode shows the literal block height; "tracked amount"
+        // doesn't apply to a block count, so we don't scale by it.
+        val displayed = if (isBlock) samplePrice else samplePrice * tracked
         val moscowTime = cbMoscowTime.isChecked
-        val priceText = if (PriceFormat.isMoscowTimeActive(currency, separator, moscowTime))
+        val priceText = if (isBlock) {
+            // Block height is an integer count, never decimals or
+            // Moscow-Time-formatted. Honour the thousands separator so
+            // 948,347 reads more easily than 948347.
+            PriceFormat.format(displayed, showDecimals = false, separator)
+        } else if (PriceFormat.isMoscowTimeActive(currency, separator, moscowTime)) {
             PriceFormat.formatMoscowTime(displayed)
-        else
+        } else {
             PriceFormat.format(displayed, showDecimals, separator)
+        }
         val symbol = WidgetPrefs.symbolFor(currency)
         val hideCurrencyIcon = !cbShowCurrencyIcon.isChecked
         // SATS uses the icon slot for the glyph (text prefix is empty).
@@ -389,6 +590,15 @@ class WidgetConfigActivity : Activity() {
             hideCurrencyIcon -> priceText
             else -> "$symbol $priceText"
         }
+
+        // Mirror the live widget's colour pick so the preview always
+        // shows the user what they'll get. PRICE_TEXT_COLOR_DEFAULT
+        // means "no override" — fall back to the theme colour.
+        val priceColor = if (selectedPriceColor == WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT)
+            getColor(R.color.widget_text) else selectedPriceColor
+        previewPrice.setTextColor(priceColor)
+        // Unit label keeps the existing 0.7 alpha defined in the layout.
+        previewUnit.setTextColor(priceColor)
 
         // Swap the preview icon between the Bitcoin logo and the sat
         // symbol so the user sees the same glyph the live widget will
@@ -403,7 +613,19 @@ class WidgetConfigActivity : Activity() {
         val iconHidden = hideLogo || (isSats && hideCurrencyIcon)
         previewIcon.visibility = if (iconHidden) View.GONE else View.VISIBLE
 
-        if (hideUnit) {
+        if (isBlock) {
+            // BLOCK mode commandeers the unit-label slot for the
+            // miner / pool name. The "Show 1 BTC caption" toggle still
+            // controls visibility — turning it off hides the miner too,
+            // which is the most natural carry-over of the existing flag
+            // for users who want a minimal block widget.
+            if (hideUnit) {
+                previewUnit.visibility = View.GONE
+            } else {
+                previewUnit.visibility = View.VISIBLE
+                previewUnit.text = "SpiderPool"
+            }
+        } else if (hideUnit) {
             previewUnit.visibility = View.GONE
         } else {
             previewUnit.visibility = View.VISIBLE
@@ -420,8 +642,12 @@ class WidgetConfigActivity : Activity() {
         }
         renderPreviewSparkline(currency, chartHistorical, samplePrice, changeMode)
 
-        val historical: Double? = when (changeMode) {
-            WidgetPrefs.CHANGE_1W -> sampleOneWeek
+        // BLOCK mode has no concept of "change %" — block height only
+        // ever increases, the diagonal line behind the number already
+        // says so. Hide the change indicator entirely for that mode.
+        val historical: Double? = when {
+            isBlock -> null
+            changeMode == WidgetPrefs.CHANGE_1W -> sampleOneWeek
             else -> sampleOneDay
         }
         if (historical == null) {
@@ -497,6 +723,26 @@ class WidgetConfigActivity : Activity() {
         if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
             val color = getColor(R.color.sparkline_up)
             val bmp = SparklineRenderer.renderFlat(
+                widthPx = widthPx,
+                heightPx = heightPx,
+                color = color,
+                strokePx = strokePx,
+            )
+            if (bmp == null) {
+                previewSparkline.visibility = View.GONE
+                return
+            }
+            previewSparkline.setImageBitmap(bmp)
+            previewSparkline.visibility = View.VISIBLE
+            return
+        }
+
+        // BLOCK mode: paint a diagonal line going up. Block height only
+        // ever increases, so a simple bottom-left -> top-right stroke
+        // tells the joke without needing a real series.
+        if (currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)) {
+            val color = getColor(R.color.sparkline_up)
+            val bmp = SparklineRenderer.renderDiagonal(
                 widthPx = widthPx,
                 heightPx = heightPx,
                 color = color,
@@ -602,23 +848,97 @@ class WidgetConfigActivity : Activity() {
     }
 
     /**
-     * Plausible sample values for each currency, used solely to drive
-     * the live preview before any real network fetch has populated
-     * cached values.
+     * Sample (currentPrice, oneDayAgo, oneWeekAgo) for the live preview.
+     *
+     * Prefers REAL cached data so the preview matches what the home
+     * screen widget will actually paint:
+     *   - current price comes from `loadLatestUpstreamPrice` (saved on
+     *     every successful summary fetch), or null and we synthesise
+     *     from the chart cache's tail / fall back to a hardcoded value;
+     *   - 24h-ago / 7d-ago references are pulled from the FIRST entry
+     *     of the cached `hist_1d` / `hist_7d` arrays.
+     *
+     * Falling back to hardcoded numbers only when no widget has fetched
+     * yet keeps the very first launch usable, but as soon as one
+     * placed widget has hit the wire the preview lines up with reality.
+     * This used to be a static triple, which is why the change
+     * indicator could read "+1.1% 24h" while the chart line behind it
+     * dipped — the two read from different sources.
      */
     private fun sampleData(currency: String): Triple<Double, Double?, Double?> {
         return when (currency) {
-            WidgetPrefs.CURRENCY_EUR -> Triple(69498.08, 68717.13, 65033.52)
             WidgetPrefs.CURRENCY_BTC -> Triple(1.0, null, null)
-            WidgetPrefs.CURRENCY_SATS -> {
-                // Mirror the live computation: 100,000,000 / usd_price.
-                val usd = 81324.99
-                val usd1d = 80325.00
-                val usd1w = 76177.99
-                Triple(100_000_000.0 / usd, 100_000_000.0 / usd1d, 100_000_000.0 / usd1w)
+            WidgetPrefs.CURRENCY_BLOCK -> {
+                val cached = WidgetPrefs.loadLatestBlockHeight(this)?.toDouble()
+                Triple(cached ?: 948_347.0, null, null)
             }
-            else -> Triple(81324.99, 80325.00, 76177.99)
+            WidgetPrefs.CURRENCY_SATS -> {
+                // SATS rides on USD: invert every component value.
+                // Fallbacks below are taken from the example summary
+                // payload so the implied direction (24h down, 7d up)
+                // matches a realistic recent snapshot — it used to be
+                // a flat +1% line that argued with the chart shape.
+                val usd = liveOrFallbackPrice(WidgetPrefs.CURRENCY_USD, fallback = 80175.08)
+                val usd1d = liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_1D, fallback = 81413.00
+                )
+                val usd1w = liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_7D, fallback = 76377.00
+                )
+                Triple(
+                    100_000_000.0 / usd,
+                    usd1d?.let { 100_000_000.0 / it },
+                    usd1w?.let { 100_000_000.0 / it },
+                )
+            }
+            WidgetPrefs.CURRENCY_EUR -> Triple(
+                liveOrFallbackPrice(WidgetPrefs.CURRENCY_EUR, fallback = 68246.54),
+                liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_EUR, WidgetPrefs.HISTORY_1D, fallback = 69308.00
+                ),
+                liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_EUR, WidgetPrefs.HISTORY_7D, fallback = 65109.00
+                ),
+            )
+            else -> Triple(
+                liveOrFallbackPrice(WidgetPrefs.CURRENCY_USD, fallback = 80175.08),
+                liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_1D, fallback = 81413.00
+                ),
+                liveOrFallbackHistorical(
+                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_7D, fallback = 76377.00
+                ),
+            )
         }
+    }
+
+    /**
+     * Latest fetched upstream price for [currency], or [fallback] when
+     * no widget has fetched yet (or the saved value is non-finite).
+     */
+    private fun liveOrFallbackPrice(currency: String, fallback: Double): Double {
+        val v = WidgetPrefs.loadLatestUpstreamPrice(this, currency) ?: return fallback
+        return if (v.isFinite() && v > 0) v else fallback
+    }
+
+    /**
+     * First (oldest) value in the cached history series for [period],
+     * which is the natural "1 day ago" / "1 week ago" reference. Falls
+     * back to [fallback] when nothing is cached yet — same shape the
+     * live widget uses for the change-indicator math.
+     */
+    private fun liveOrFallbackHistorical(
+        currency: String,
+        period: String,
+        fallback: Double,
+    ): Double? {
+        val cached = WidgetPrefs.loadHistoryJson(this, period) ?: return fallback
+        val parsed = HistoryFetcher.parse(cached) as? HistoryResult.Success
+            ?: return fallback
+        val series = HistoryFetcher.seriesFor(parsed.points, currency)
+        if (series.isEmpty()) return fallback
+        val head = series.first()
+        return if (head.isFinite() && head > 0) head else fallback
     }
 
     private fun formatUnitLabel(amount: Double, currency: String = WidgetPrefs.CURRENCY_USD): String {
@@ -651,6 +971,7 @@ class WidgetConfigActivity : Activity() {
         rbEur.isChecked -> WidgetPrefs.CURRENCY_EUR
         rbBtc.isChecked -> WidgetPrefs.CURRENCY_BTC
         rbSats.isChecked -> WidgetPrefs.CURRENCY_SATS
+        rbBlock.isChecked -> WidgetPrefs.CURRENCY_BLOCK
         else -> WidgetPrefs.CURRENCY_USD
     }
 
@@ -682,7 +1003,16 @@ class WidgetConfigActivity : Activity() {
         else -> WidgetPrefs.CHANGE_1D
     }
 
-    private fun persistAndFinish() {
+    /**
+     * Persist every UI value to SharedPreferences, set RESULT_OK so
+     * the appWidgetId Android handed us is committed (required on
+     * fresh-add, no-op on reconfigure), and trigger a widget refresh
+     * so the new settings hit the home screen immediately.
+     *
+     * Called from [finish] — guarded by [hasPersisted] so even an
+     * abnormal close path can't double-write.
+     */
+    private fun persistAndPushUpdate() {
         WidgetPrefs.saveCurrency(this, appWidgetId, selectedCurrency())
         WidgetPrefs.saveTrackedAmount(this, appWidgetId, parsedTrackedAmount())
         WidgetPrefs.saveShowDecimals(this, appWidgetId, cbShowDecimals.isChecked)
@@ -699,12 +1029,31 @@ class WidgetConfigActivity : Activity() {
         // at render time, so a stored "true" with currency!=SATS does
         // nothing visible until the user re-meets the unlock condition.
         WidgetPrefs.saveMoscowTime(this, appWidgetId, cbMoscowTime.isChecked)
+        WidgetPrefs.savePriceTextColor(this, appWidgetId, selectedPriceColor)
 
         val mgr = AppWidgetManager.getInstance(this)
         BitcoinPriceWidgetProvider.updateWidget(this, mgr, appWidgetId)
 
         val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
         setResult(Activity.RESULT_OK, resultValue)
-        finish()
+    }
+
+    /**
+     * Auto-save hook: every exit path through this Activity (the Done
+     * button, the system back button, the swipe-back gesture, an
+     * explicit finish() from anywhere else) routes through here, so the
+     * user no longer has to tap an explicit Save button to keep their
+     * changes.
+     *
+     * The early-return on [appWidgetId] == INVALID_APPWIDGET_ID covers
+     * the bail-out branch in [onCreate] — when launched without a valid
+     * id we finish immediately without touching prefs.
+     */
+    override fun finish() {
+        if (!hasPersisted && appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            hasPersisted = true
+            persistAndPushUpdate()
+        }
+        super.finish()
     }
 }

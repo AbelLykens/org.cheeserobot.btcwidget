@@ -93,9 +93,18 @@ object WidgetPrefs {
     private const val KEY_LATEST_UPSTREAM_USD_GLOBAL = "latest_upstream_usd_global"
     private const val KEY_LATEST_UPSTREAM_EUR_GLOBAL = "latest_upstream_eur_global"
     private const val KEY_LATEST_UPSTREAM_AT_GLOBAL = "latest_upstream_at_global"
+    // Latest-block snapshot. Stored globally so every BLOCK-mode widget
+    // shares one value and one fetch. Height is the bitcoin block number,
+    // miner is the human-friendly pool/miner name (may be absent for
+    // unidentified blocks), time is the upstream-reported ISO timestamp
+    // (kept for "minutes since last block" rendering down the line).
+    private const val KEY_LATEST_BLOCK_HEIGHT_GLOBAL = "latest_block_height_global"
+    private const val KEY_LATEST_BLOCK_MINER_GLOBAL = "latest_block_miner_global"
+    private const val KEY_LATEST_BLOCK_TIME_GLOBAL = "latest_block_time_global"
     private const val KEY_SHOW_CHART_PREFIX = "show_chart_"
     private const val KEY_MOSCOW_TIME_PREFIX = "moscow_time_"
     private const val KEY_HIDE_CURRENCY_ICON_PREFIX = "hide_currency_icon_"
+    private const val KEY_PRICE_TEXT_COLOR_PREFIX = "price_text_color_"
 
     const val CURRENCY_USD = "USD"
     const val CURRENCY_EUR = "EUR"
@@ -113,6 +122,14 @@ object WidgetPrefs {
      * a text symbol like "$" or "€".
      */
     const val CURRENCY_SATS = "SATS"
+
+    /**
+     * Latest bitcoin block height. Skips price fetching entirely — the
+     * value comes from `summary.json`'s `latest_block` snapshot. The
+     * widget swaps the unit-label slot for the miner / pool name and
+     * paints a diagonal "stonks-go-up" line behind the number.
+     */
+    const val CURRENCY_BLOCK = "BLOCK"
 
     // Thousands-separator options.
     const val SEPARATOR_AUTO = "AUTO"
@@ -167,6 +184,17 @@ object WidgetPrefs {
      * shows the sat-symbol). Both can be set; their effects compose.
      */
     const val DEFAULT_HIDE_CURRENCY_ICON = false
+
+    /**
+     * Sentinel value for "use the theme's default text colour"
+     * (i.e. R.color.widget_text). Stored as 0 because it's also
+     * `Color.TRANSPARENT` — no real text colour is ever 0-alpha, so
+     * we can safely overload it as "no override set".
+     *
+     * Any other int is interpreted as a literal ARGB colour the user
+     * picked from the swatch row in the configuration screen.
+     */
+    const val PRICE_TEXT_COLOR_DEFAULT = 0
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -311,6 +339,31 @@ object WidgetPrefs {
     fun loadMoscowTime(context: Context, appWidgetId: Int): Boolean {
         return prefs(context).getBoolean(
             KEY_MOSCOW_TIME_PREFIX + appWidgetId, DEFAULT_MOSCOW_TIME
+        )
+    }
+
+    // ---- Price text colour ------------------------------------------------
+
+    /**
+     * Persist the user-chosen ARGB colour for the price + unit-label text.
+     * Pass [PRICE_TEXT_COLOR_DEFAULT] (0) to clear any override and fall
+     * back to the theme default at render time.
+     */
+    fun savePriceTextColor(context: Context, appWidgetId: Int, color: Int) {
+        prefs(context).edit()
+            .putInt(KEY_PRICE_TEXT_COLOR_PREFIX + appWidgetId, color)
+            .apply()
+    }
+
+    /**
+     * Returns the user's chosen price-text colour or
+     * [PRICE_TEXT_COLOR_DEFAULT] when none was ever picked. The widget
+     * provider treats the default sentinel as "use R.color.widget_text"
+     * so the rendered colour automatically follows the system theme.
+     */
+    fun loadPriceTextColor(context: Context, appWidgetId: Int): Int {
+        return prefs(context).getInt(
+            KEY_PRICE_TEXT_COLOR_PREFIX + appWidgetId, PRICE_TEXT_COLOR_DEFAULT
         )
     }
 
@@ -535,6 +588,50 @@ object WidgetPrefs {
         return prefs(context).getLong(KEY_LATEST_UPSTREAM_AT_GLOBAL, 0L)
     }
 
+    // ---- Latest block snapshot (global) ----------------------------------
+
+    /**
+     * Save the latest-block snapshot from [SummaryFetcher]. Stored as
+     * three loose keys (height/miner/time) rather than a single JSON
+     * blob so a partial absence (e.g. unidentified miner) keeps the
+     * other fields readable. Pass null fields through unchanged so a
+     * miner-less block doesn't blank out a previously-good name.
+     */
+    fun saveLatestBlock(
+        context: Context,
+        height: Long?,
+        minerName: String?,
+        time: String?,
+    ) {
+        val ed = prefs(context).edit()
+        if (height != null && height >= 0) {
+            ed.putLong(KEY_LATEST_BLOCK_HEIGHT_GLOBAL, height)
+        }
+        if (minerName != null) {
+            ed.putString(KEY_LATEST_BLOCK_MINER_GLOBAL, minerName)
+        } else {
+            ed.remove(KEY_LATEST_BLOCK_MINER_GLOBAL)
+        }
+        if (time != null) {
+            ed.putString(KEY_LATEST_BLOCK_TIME_GLOBAL, time)
+        }
+        ed.apply()
+    }
+
+    fun loadLatestBlockHeight(context: Context): Long? {
+        if (!prefs(context).contains(KEY_LATEST_BLOCK_HEIGHT_GLOBAL)) return null
+        val v = prefs(context).getLong(KEY_LATEST_BLOCK_HEIGHT_GLOBAL, -1L)
+        return if (v >= 0) v else null
+    }
+
+    fun loadLatestBlockMiner(context: Context): String? {
+        return prefs(context).getString(KEY_LATEST_BLOCK_MINER_GLOBAL, null)
+    }
+
+    fun loadLatestBlockTime(context: Context): String? {
+        return prefs(context).getString(KEY_LATEST_BLOCK_TIME_GLOBAL, null)
+    }
+
     private fun loadDouble(context: Context, key: String): Double? {
         if (!prefs(context).contains(key)) return null
         val bits = prefs(context).getLong(key, 0L)
@@ -565,6 +662,7 @@ object WidgetPrefs {
             .remove(KEY_SHOW_CHART_PREFIX + appWidgetId)
             .remove(KEY_MOSCOW_TIME_PREFIX + appWidgetId)
             .remove(KEY_HIDE_CURRENCY_ICON_PREFIX + appWidgetId)
+            .remove(KEY_PRICE_TEXT_COLOR_PREFIX + appWidgetId)
             .apply()
     }
 
@@ -577,6 +675,9 @@ object WidgetPrefs {
         CURRENCY_EUR -> "€"
         CURRENCY_BTC -> "₿"
         CURRENCY_SATS -> ""
+        // BLOCK: the height is its own label (e.g. "948,347"); no glyph
+        // sits in front of it. The miner name is rendered above instead.
+        CURRENCY_BLOCK -> ""
         else -> "$"
     }
 }

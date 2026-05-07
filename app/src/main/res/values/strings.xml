@@ -10,6 +10,7 @@
     <string name="config_eur">Euros (€)</string>
     <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
     <string name="config_sats">Sats per USD</string>
+    <string name="config_block">Block height — latest block</string>
 
     <string name="config_preview_label">Preview</string>
 
@@ -54,16 +55,45 @@
     <string name="config_show_logo">Show Bitcoin logo</string>
     <string name="config_show_currency_icon">Show currency icon ($, €, sat)</string>
     <string name="config_show_unit_label">Show \"1 BTC\" caption</string>
+    <!--
+        BLOCK mode reuses the same caption slot as the "1 BTC" toggle but
+        the slot now carries the miner / pool name, so the label is
+        relabeled at bind time when the user picks Block height.
+    -->
+    <string name="config_show_miner_name">Show miner name</string>
     <string name="config_show_chart">Show chart background</string>
     <string name="config_show_chart_hint">Paint a faint price line behind the widget. The chart spans the same period chosen below.</string>
+
+    <!--
+        Price-text colour swatches. The first option ("Default") clears
+        any override and falls back to the theme colour (dark text in
+        light mode, light text in dark mode). All other swatches paint
+        the price in the literal hue regardless of theme.
+    -->
+    <string name="config_price_color_label">Price text color</string>
+    <string name="config_price_color_default">Default</string>
+    <string name="config_price_color_default_desc">Use theme color (default)</string>
+    <string name="config_price_color_black_desc">Black</string>
+    <string name="config_price_color_white_desc">White</string>
+    <string name="config_price_color_orange_desc">Bitcoin orange</string>
+    <string name="config_price_color_red_desc">Red</string>
+    <string name="config_price_color_green_desc">Green</string>
+    <string name="config_price_color_blue_desc">Blue</string>
 
     <string name="config_change_label">Price change</string>
     <string name="config_change_hint">Pick the time window. The percentage line at the bottom reads in this period (green up / red down) and the optional chart background covers the same span.</string>
     <string name="config_change_1d">24h</string>
     <string name="config_change_1w">7d</string>
 
+    <!--
+        config_save / config_cancel are kept around in case any reused
+        layout references them, but the live config screen now uses the
+        single "Done" action below and auto-saves on every close path.
+    -->
     <string name="config_save">Save</string>
     <string name="config_cancel">Cancel</string>
+    <string name="config_done">Done</string>
+    <string name="config_autosave_hint">Changes save automatically when you close this screen.</string>
 
     <string name="config_version_label">Version %1$s</string>
 
@@ -98,6 +128,8 @@
     <string name="launcher_widget_status_never_fetched">Widget #%1$d (%2$s): never fetched yet</string>
     <string name="launcher_widget_status_error">Widget #%1$d (%2$s): last fetch failed (%3$s) — %4$s</string>
     <string name="launcher_widget_status_btc_mode">Widget #%1$d (BTC mode): always shows %2$s</string>
+    <string name="launcher_widget_status_block">Widget #%1$d (Block): %2$s — updated %3$s</string>
+    <string name="block_miner_unknown">Unknown miner</string>
     <string name="launcher_how_to_title">How to add the widget</string>
     <string name="launcher_how_to_steps">1.  Long-press an empty spot on your home screen.\n2.  Tap \"Widgets\".\n3.  Find \"Cheese BTC Widget\" in the list.\n4.  Drag \"BTC Price\" onto the home screen.\n5.  Choose USD or EUR.</string>
     <string name="launcher_add_widget">Add widget to home screen</string>

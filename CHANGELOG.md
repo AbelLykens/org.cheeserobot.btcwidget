@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0] - 2026-05-07
+
+### Added
+- **Block height widget mode.** New currency option in the configure
+  screen: pick **Block height — latest block** to turn the widget into
+  a live bitcoin block-height counter. The miner / pool name (e.g.
+  "SpiderPool") sits in the top caption slot, the latest block number
+  (e.g. `948,347`) is the main read, and the chart background paints
+  a stylised diagonal line going up — block height only ever climbs,
+  so the line is the joke. Powered by the new `latest_block` field
+  in `summary.json`. The change-percentage indicator hides automatically
+  for this mode.
+
+### Changed
+- **Single endpoint, all data.** USD, EUR, SATS, the 24-hour and 7-day
+  history series, and the latest block are now pulled from one
+  consolidated `https://cheeserobot.org/price/summary.json` call
+  instead of three different endpoints. Each widget refresh costs
+  exactly one HTTP round-trip on the wire — the previous design
+  fanned out to as many as three (price, hist-1d, hist-7d) per tick.
+  The chart cache and the change-indicator's 24h/7d reference points
+  fall straight out of the same payload, so no new caching machinery
+  is needed.
+
+[3.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v3.0
+
 ## [2.8] - 2026-05-07
 
 ### Added

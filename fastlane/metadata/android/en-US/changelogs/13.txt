@@ -1,0 +1,9 @@
+v3.0 - Block height widgets and a single-call API.
+
+* New "Block height" widget mode: shows the latest bitcoin block
+  number with the miner name above and a diagonal "stonks-go-up"
+  line behind. Block height only ever climbs, so the line is the
+  joke (just like BTC mode's flat line says 1 BTC = 1 BTC).
+* All widget data now rides on one consolidated /price/summary.json
+  endpoint instead of three. Refreshes are 3x lighter on the wire
+  while the on-screen experience is identical.

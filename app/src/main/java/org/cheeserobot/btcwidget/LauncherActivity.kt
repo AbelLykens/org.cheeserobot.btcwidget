@@ -113,10 +113,29 @@ class LauncherActivity : Activity() {
 
         previewView.text = getString(R.string.preview_loading)
         previewJob = CoroutineScope(Dispatchers.IO).launch {
-            val usd = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_USD)
-            val eur = PriceFetcher.fetchPrice(WidgetPrefs.CURRENCY_EUR)
+            // One round trip pulls everything: the unified summary feed
+            // carries both fiat prices (and the latest-block info we
+            // don't need on this screen). We project it back into the
+            // per-currency PriceResult shape the existing formatter
+            // already understands.
+            val summary = SummaryFetcher.fetchSummary()
+            val usd = priceResultFor(summary, WidgetPrefs.CURRENCY_USD)
+            val eur = priceResultFor(summary, WidgetPrefs.CURRENCY_EUR)
             withContext(Dispatchers.Main) {
                 previewView.text = formatPreview(usd, eur)
+            }
+        }
+    }
+
+    /** Turn a [SummaryResult] into a per-currency [PriceResult]. */
+    private fun priceResultFor(result: SummaryResult, currency: String): PriceResult {
+        return when (result) {
+            is SummaryResult.Error ->
+                PriceResult.Error(result.reason, result.cause)
+            is SummaryResult.Success -> {
+                val price = result.summary.currentPrice(currency)
+                if (price == null) PriceResult.Error("No \"$currency\" in summary")
+                else PriceResult.Success(price)
             }
         }
     }
@@ -257,6 +276,25 @@ class LauncherActivity : Activity() {
             return getString(
                 R.string.launcher_widget_status_btc_mode, displayIndex, text
             )
+        }
+
+        // BLOCK mode: there's no currency / price text in the
+        // traditional sense — the status line shows the cached block
+        // height (with miner if known) and how long ago we fetched it.
+        if (currency.equals(WidgetPrefs.CURRENCY_BLOCK, ignoreCase = true)) {
+            val cached = cachedPrice ?: WidgetPrefs.loadLatestBlockHeight(ctx)?.toString()
+            if (cached != null && lastSuccess > 0) {
+                val miner = WidgetPrefs.loadLatestBlockMiner(ctx)
+                val display = if (miner != null) "block $cached ($miner)" else "block $cached"
+                return getString(
+                    R.string.launcher_widget_status_block,
+                    displayIndex,
+                    display,
+                    relativeTime(nowEpochMs - lastSuccess),
+                )
+            }
+            // Falls through to the generic never-fetched / error paths
+            // below if no cached value yet.
         }
 
         // Most recent error wins display priority — the user wants to
