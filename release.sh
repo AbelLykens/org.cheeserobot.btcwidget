@@ -123,15 +123,24 @@ if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
   exit 1
 fi
 
-if ! confirm "Create annotated tag ${tag} on HEAD and push to origin?"; then
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [[ "$branch" == "HEAD" ]]; then
+  fail "HEAD is detached -- check out a branch before tagging."
+  exit 1
+fi
+
+if ! confirm "Create annotated tag ${tag} on branch ${branch} and push to origin?"; then
   note "Skipped tagging and pushing. Stopping."
   exit 0
 fi
 
 git tag -a "$tag" -m "Release ${tag}"
-git push origin HEAD
+# Push the branch by name (not HEAD) so this works even when no upstream
+# is configured yet -- `git push origin HEAD` requires a tracked branch.
+# `-u` sets the upstream on first push so future plain `git push` works.
+git push -u origin "$branch"
 git push origin "$tag"
-ok "Pushed HEAD and tag ${tag} to origin."
+ok "Pushed branch ${branch} and tag ${tag} to origin."
 
 # ---- 4) build in Android Studio --------------------------------------------
 step "4/7  Build the signed release APK in Android Studio"

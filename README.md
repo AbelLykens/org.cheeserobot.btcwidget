@@ -11,9 +11,17 @@ Price feed: [`https://cheeserobot.org/price/latest.json`](https://cheeserobot.or
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-home-screen.png"
-       alt="All four widget variants on the home screen — USD, BTC, EUR, and the new sats-per-USD"
-       width="320" />
+       alt="All four widget variants on the home screen — USD, BTC, EUR, and sats-per-USD"
+       width="240" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-currency-picker.png"
+       alt="The configuration screen shown when you add the widget — preview at the top, currency picker below"
+       width="240" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-advanced-options.png"
+       alt="Advanced options expanded — tracked amount, thousands separator, background opacity, display toggles, price-change period"
+       width="240" />
 </p>
+
+<p align="center"><em>Home screen with all four variants · Add-widget picker · Advanced options</em></p>
 
 ---
 
