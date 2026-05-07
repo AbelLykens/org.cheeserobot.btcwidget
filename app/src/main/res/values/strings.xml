@@ -5,10 +5,6 @@
     <string name="widget_description">Shows the latest Bitcoin price from cheeserobot.org</string>
 
     <!-- Configuration screen -->
-    <string name="config_title">Choose your currency</string>
-    <string name="config_subtitle">Pick how you want the BTC price displayed</string>
-    <string name="config_reconfigure_subtitle">Update your widget settings</string>
-
     <string name="config_currency_label">Currency</string>
     <string name="config_usd">US Dollars ($)</string>
     <string name="config_eur">Euros (€)</string>
@@ -58,13 +54,13 @@
     <string name="config_show_logo">Show Bitcoin logo</string>
     <string name="config_show_currency_icon">Show currency icon ($, €, sat)</string>
     <string name="config_show_unit_label">Show \"1 BTC\" caption</string>
-    <string name="config_show_chart">Show 7-day chart background</string>
+    <string name="config_show_chart">Show chart background</string>
+    <string name="config_show_chart_hint">Paint a faint price line behind the widget. The chart spans the same period chosen below.</string>
 
-    <string name="config_change_label">Price change indicator</string>
-    <string name="config_change_hint">Show a coloured percentage line at the bottom of the widget. Green when up, red when down.</string>
-    <string name="config_change_off">Off</string>
-    <string name="config_change_1d">Show 24-hour change</string>
-    <string name="config_change_1w">Show 7-day change</string>
+    <string name="config_change_label">Price change</string>
+    <string name="config_change_hint">Pick the time window. The percentage line at the bottom reads in this period (green up / red down) and the optional chart background covers the same span.</string>
+    <string name="config_change_1d">24h</string>
+    <string name="config_change_1w">7d</string>
 
     <string name="config_save">Save</string>
     <string name="config_cancel">Cancel</string>

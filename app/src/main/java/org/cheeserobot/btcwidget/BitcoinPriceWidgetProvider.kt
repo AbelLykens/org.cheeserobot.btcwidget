@@ -206,10 +206,18 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
             val results = fetchPricesWithRetry(currencies)
 
-            // Best-effort: refresh the (optional) 7-day history at most
-            // once per hour. Runs on the same IO thread we're already on.
-            // A failure here never affects the price render.
-            maybeRefreshHistory(context)
+            // Best-effort: refresh the (optional) 24h / 7d price history
+            // at most once per hour each, only for the windows actually
+            // needed by some placed chart-enabled widget. Runs on the
+            // same IO thread we're already on. A failure here never
+            // affects the price render.
+            maybeRefreshHistory(context, networkIds.toIntArray())
+
+            // Cache the latest fetched USD/EUR prices globally so the
+            // chart renderer can append a "now" point on the right
+            // edge — that's the "always add the latest price we have
+            // to the data points" rule.
+            saveLatestUpstream(context, results)
 
             for (id in networkIds) {
                 renderResult(context, mgr, id, results)
@@ -217,32 +225,82 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         }
 
         /**
-         * Minimum gap between successful 7-day history fetches. The
-         * upstream endpoint changes slowly (server-side updates are
-         * coarse-grained too), so an hour is plenty.
+         * Lift the raw upstream USD/EUR price out of the per-currency
+         * fetch results and persist them globally. Either may be absent
+         * (no widget asked for that currency this round, or the fetch
+         * failed); we only save the ones we actually have so a
+         * partial-failure round trip can't blank an existing good value.
+         */
+        private fun saveLatestUpstream(
+            context: Context,
+            results: Map<String, PriceResult>,
+        ) {
+            val usd = (results[WidgetPrefs.CURRENCY_USD] as? PriceResult.Success)?.price
+            val eur = (results[WidgetPrefs.CURRENCY_EUR] as? PriceResult.Success)?.price
+            if (usd == null && eur == null) return
+            WidgetPrefs.saveLatestUpstreamPrices(context, usd, eur)
+        }
+
+        /**
+         * Minimum gap between successful price-history fetches per
+         * window. The upstream endpoints change slowly (server-side
+         * updates are coarse-grained too), so an hour is plenty.
+         * Applies to both the 24h and 7d JSON files independently.
          */
         private const val HISTORY_REFRESH_INTERVAL_MS = 60L * 60L * 1000L
 
         /**
-         * If at least [HISTORY_REFRESH_INTERVAL_MS] has passed since the
-         * last successful history fetch, hit the endpoint and cache the
-         * body for later renders. Failures are silent — the next price
-         * tick will try again.
+         * Refresh whichever price-history caches are stale (>1h old)
+         * and actually needed by some placed widget. We compute the
+         * union of windows currently selected across all non-BTC
+         * widgets that have the chart turned on — i.e. only fetch the
+         * 24h JSON if at least one widget is set to 24h-with-chart,
+         * and likewise for 7d. Failures are silent; the next tick can
+         * retry. Bytes saved: charts that are off entirely no longer
+         * pull either endpoint.
          */
-        private fun maybeRefreshHistory(context: Context) {
-            val now = System.currentTimeMillis()
-            val last = WidgetPrefs.loadLastHistoryAt(context)
-            if (last > 0 && (now - last) < HISTORY_REFRESH_INTERVAL_MS) return
+        private fun maybeRefreshHistory(context: Context, ids: IntArray) {
             if (!hasNetwork(context)) return
-            when (val r = HistoryFetcher.fetchHistory()) {
-                is HistoryResult.Success -> {
-                    WidgetPrefs.saveHistoryJson(context, r.rawBody, now)
-                }
-                is HistoryResult.Error -> {
-                    // Non-fatal: leave existing cache alone (or empty),
-                    // the next tick can retry.
+            val now = System.currentTimeMillis()
+            val needed = neededHistoryPeriods(context, ids)
+            for (period in needed) {
+                val last = WidgetPrefs.loadLastHistoryAt(context, period)
+                if (last > 0 && (now - last) < HISTORY_REFRESH_INTERVAL_MS) continue
+                when (val r = HistoryFetcher.fetchHistory(period)) {
+                    is HistoryResult.Success -> {
+                        WidgetPrefs.saveHistoryJson(context, period, r.rawBody, now)
+                    }
+                    is HistoryResult.Error -> {
+                        // Non-fatal: leave existing cache alone (or empty),
+                        // the next tick can retry.
+                    }
                 }
             }
+        }
+
+        /**
+         * Set of history windows ([WidgetPrefs.HISTORY_1D] /
+         * [WidgetPrefs.HISTORY_7D]) needed across all placed widgets.
+         * Only widgets that have the chart enabled and aren't in BTC-mode
+         * contribute — BTC has no historical to draw, and chart-off
+         * widgets never read the cache.
+         */
+        private fun neededHistoryPeriods(
+            context: Context,
+            ids: IntArray,
+        ): Set<String> {
+            val out = mutableSetOf<String>()
+            for (id in ids) {
+                val ccy = WidgetPrefs.loadCurrency(context, id)
+                if (ccy.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) continue
+                if (!WidgetPrefs.loadShowChart(context, id)) continue
+                val mode = WidgetPrefs.loadChangeIndicator(context, id)
+                out.add(
+                    if (mode == WidgetPrefs.CHANGE_1W) WidgetPrefs.HISTORY_7D
+                    else WidgetPrefs.HISTORY_1D
+                )
+            }
+            return out
         }
 
         /**
@@ -519,8 +577,10 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
 
         /**
          * Set text + colour + visibility on the change indicator line.
-         * Hidden when the user has the indicator OFF, no current price
-         * yet, or the upstream feed didn't ship the requested historical.
+         * Hidden only when there's no current price yet or the upstream
+         * feed didn't ship the requested historical — the user can no
+         * longer disable the indicator entirely (the bottom row always
+         * reflects the chosen 24h/7d window when data is available).
          */
         private fun renderChangeIndicator(
             context: Context,
@@ -531,13 +591,11 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val mode = WidgetPrefs.loadChangeIndicator(context, appWidgetId)
             val current = WidgetPrefs.loadLastRawPrice(context, appWidgetId)
             val historical = when (mode) {
-                WidgetPrefs.CHANGE_1D -> WidgetPrefs.loadLastOneDayAgo(context, appWidgetId)
                 WidgetPrefs.CHANGE_1W -> WidgetPrefs.loadLastOneWeekAgo(context, appWidgetId)
-                else -> null
+                else -> WidgetPrefs.loadLastOneDayAgo(context, appWidgetId)
             }
 
-            if (mode == WidgetPrefs.CHANGE_OFF ||
-                current == null || !current.isFinite() ||
+            if (current == null || !current.isFinite() ||
                 historical == null || !historical.isFinite() || historical == 0.0
             ) {
                 views.setViewVisibility(R.id.change_indicator, View.GONE)
@@ -625,9 +683,16 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
          * Build the optional sparkline bitmap for [appWidgetId], or null
          * when:
          *   - the user has the chart toggle off,
-         *   - we don't yet have any cached history JSON,
+         *   - we don't yet have any cached history JSON for the chosen
+         *     window (24h or 7d),
          *   - the cached body is corrupt or empty,
          *   - the resulting series is too short / flat to render.
+         *
+         * The chart window follows the per-widget price-change setting:
+         * CHANGE_1D pulls the 1-day endpoint, CHANGE_1W the 7-day one.
+         * The most recent fetched upstream price is always appended as
+         * the rightmost data point so the line ends at "now" — even
+         * when the cache itself is slightly stale (up to 1h old).
          *
          * The bitmap is just the line on a transparent canvas — the
          * rounded panel lives on a separate ImageView so the user's
@@ -641,7 +706,29 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             currency: String,
         ): Bitmap? {
             if (!WidgetPrefs.loadShowChart(context, appWidgetId)) return null
-            val cached = WidgetPrefs.loadHistoryJson(context) ?: return null
+
+            // BTC mode: no fetch, no historical, no period selector —
+            // 1 BTC has always been worth 1 BTC. Paint a flat green
+            // line so the chart toggle still reads as "on" and the
+            // visual joke completes. Bypasses every cache and the
+            // up/down colour logic on purpose.
+            if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
+                val (widthPx, heightPx) = widgetPixelSize(context, appWidgetId)
+                val color = context.getColor(R.color.sparkline_up)
+                val density = context.resources.displayMetrics.density
+                val strokePx = (1.5f * density).coerceAtLeast(1.5f)
+                return SparklineRenderer.renderFlat(
+                    widthPx = widthPx,
+                    heightPx = heightPx,
+                    color = color,
+                    strokePx = strokePx,
+                )
+            }
+
+            val mode = WidgetPrefs.loadChangeIndicator(context, appWidgetId)
+            val period = if (mode == WidgetPrefs.CHANGE_1W)
+                WidgetPrefs.HISTORY_7D else WidgetPrefs.HISTORY_1D
+            val cached = WidgetPrefs.loadHistoryJson(context, period) ?: return null
             val parsed = HistoryFetcher.parse(cached)
             if (parsed !is HistoryResult.Success) return null
 
@@ -650,12 +737,22 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             val baseCurrency = if (isSats) WidgetPrefs.CURRENCY_USD else currency
             val raw = HistoryFetcher.seriesFor(parsed.points, baseCurrency)
             if (raw.size < 2) return null
+
+            // Append the latest fetched upstream price (USD/EUR) as the
+            // rightmost data point. Stored globally by the provider on
+            // every successful PriceFetcher round trip; null only on the
+            // very first launch or when no widget has fetched the
+            // chart's base currency yet.
+            val latestBase = WidgetPrefs.loadLatestUpstreamPrice(context, baseCurrency)
+            val rawPlus = appendLatest(raw, latestBase)
+
             val values = if (isSats) {
-                DoubleArray(raw.size) { i ->
-                    val v = raw[i]
+                DoubleArray(rawPlus.size) { i ->
+                    val v = rawPlus[i]
                     if (v == 0.0 || !v.isFinite()) 0.0 else 100_000_000.0 / v
                 }
-            } else raw
+            } else rawPlus
+            if (values.size < 2) return null
 
             val (widthPx, heightPx) = widgetPixelSize(context, appWidgetId)
             val colorRes = if (SparklineRenderer.isUp(values))
@@ -671,6 +768,21 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 color = color,
                 strokePx = strokePx,
             )
+        }
+
+        /**
+         * Append [latest] as a new rightmost point to [series]. Returns
+         * the original array unchanged when [latest] is null, non-finite,
+         * or already equal to the existing tail (no movement = no point
+         * in adding a degenerate horizontal segment).
+         */
+        private fun appendLatest(series: DoubleArray, latest: Double?): DoubleArray {
+            if (latest == null || !latest.isFinite()) return series
+            if (series.isNotEmpty() && series.last() == latest) return series
+            val out = DoubleArray(series.size + 1)
+            System.arraycopy(series, 0, out, 0, series.size)
+            out[series.size] = latest
+            return out
         }
 
         /**

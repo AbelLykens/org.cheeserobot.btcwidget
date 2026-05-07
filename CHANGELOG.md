@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8] - 2026-05-07
+
+### Added
+- **Sticky preview in the configure screen.** The logo and live
+  preview now stay pinned to the top of the screen while the rest
+  of the controls scroll underneath. Toggling any setting always
+  updates the preview within view — no more scrolling back up to
+  check what your change did.
+
+### Removed
+- **"Choose your currency" / "Update your widget settings" header
+  copy.** Both the title and the context-switching subtitle were
+  decorative; the live preview right below them tells you what
+  you're configuring. Removing them shrinks the sticky header so
+  more controls fit on screen at once. The Bitcoin logo above the
+  preview was also slimmed from 64dp to 40dp for the same reason.
+- **Flat green chart for BTC mode.** When the currency is
+  Bitcoin (₿) — the "always 1 BTC" easter-egg — the chart
+  background paints a single horizontal green line. There's no
+  fetch, no historical, no period selector: the line is the joke.
+
+### Changed
+- **"Price change" replaces "Price change indicator".** The settings
+  category is renamed and now offers just two options — **24h** and
+  **7d** — instead of the old Off / 24-hour / 7-day trio. The
+  bottom red/green percentage line is therefore always shown when
+  upstream data is available; users who previously had it disabled
+  see the 24h reading from now on. Existing widgets with a stored
+  `OFF` value migrate silently to `1D` on first read; their other
+  settings are preserved.
+- **Chart background follows the chosen period.** The "Show chart
+  background" toggle is no longer hard-wired to 7-day data. Picking
+  **24h** in the new section paints the sparkline from the new
+  `/price/price-hist-1d.json` endpoint (~25 hourly samples); picking
+  **7d** keeps the existing 4-hourly 7-day series. Both endpoints
+  are throttled to one fetch per hour each, independently, and only
+  pulled when at least one placed widget actually needs them.
+- **Chart always ends at "now".** Whenever the sparkline is painted,
+  the most recently fetched upstream USD/EUR price is appended as the
+  rightmost data point. Up until now the line could end anywhere up
+  to an hour in the past (the price-history cache lives at hourly
+  resolution); the appended sample closes the gap so the chart's
+  right edge matches the price text above it.
+
+[2.8]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.8
+
+## [2.7] - 2026-05-06
+
+### Changed
+- **Launcher surfaces fetch errors.** The price preview at the top of
+  the main app screen used to load once and then stick — toggling
+  airplane mode after first open left the box happily showing stale
+  numbers. It now re-fetches every time the activity resumes and every
+  time you tap "Refresh existing widgets", and short-circuits with a
+  clear bold "No network" headline (plus a "turn on Wi-Fi or mobile
+  data" hint) when the device reports no usable connection. Server
+  errors and JSON failures get the same treatment with their own
+  friendly headlines instead of an opaque exception in parentheses.
+- **SATS change indicator is colour-inverted.** Sats-per-USD rises
+  when BTC falls, so a "+1.5% 24h" reading on a SATS widget actually
+  means BTC just got cheaper. The percentage colour now flips for
+  SATS mode — negative is green, positive is red — keeping "green =
+  good for Bitcoin" consistent across every currency. The numeric
+  sign in the text still reflects the displayed value's own
+  direction. The 7-day sparkline colour was deliberately left alone.
+
+### Fixed
+- **Resource link failure on the pencil icon.** `ic_edit_pencil.xml`
+  referenced `?attr/colorControlNormal`, which is the AppCompat
+  namespace; this app intentionally avoids AppCompat (the launcher
+  extends plain `Activity` to keep the APK small), so the build
+  failed with `attr/colorControlNormal not found`. Switched to
+  `?android:attr/colorControlNormal`, which exists on the platform
+  theme since API 21 — well below our minSdk of 26.
+
+[2.7]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.7
+
 ## [2.6] - 2026-05-06
 
 ### Added

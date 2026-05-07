@@ -78,7 +78,6 @@ class WidgetConfigActivity : Activity() {
     private lateinit var cbShowUnitLabel: CheckBox
     private lateinit var cbShowChart: CheckBox
     private lateinit var rgChange: RadioGroup
-    private lateinit var rbChangeOff: RadioButton
     private lateinit var rbChange1d: RadioButton
     private lateinit var rbChange1w: RadioButton
 
@@ -160,7 +159,6 @@ class WidgetConfigActivity : Activity() {
         cbShowUnitLabel = findViewById(R.id.cb_show_unit_label)
         cbShowChart = findViewById(R.id.cb_show_chart)
         rgChange = findViewById(R.id.rg_change)
-        rbChangeOff = findViewById(R.id.rb_change_off)
         rbChange1d = findViewById(R.id.rb_change_1d)
         rbChange1w = findViewById(R.id.rb_change_1w)
         cbMoscowTime = findViewById(R.id.cb_moscow_time)
@@ -217,10 +215,12 @@ class WidgetConfigActivity : Activity() {
     }
 
     private fun loadInitialState() {
-        findViewById<TextView>(R.id.subtitle_text).setText(
-            if (isReconfigure) R.string.config_reconfigure_subtitle
-            else R.string.config_subtitle
-        )
+        // The header used to carry a "Choose your currency" title and a
+        // "Pick how you want…" / "Update your widget settings" subtitle
+        // that switched copy on reconfigure. Both TextViews were dropped
+        // when the header was slimmed down to just the logo + preview,
+        // so there's no copy to set here any more — the live preview
+        // itself is the user's orientation cue.
 
         val currency = WidgetPrefs.loadCurrency(this, appWidgetId)
         when (currency) {
@@ -251,10 +251,11 @@ class WidgetConfigActivity : Activity() {
         cbShowUnitLabel.isChecked = !WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
         cbShowChart.isChecked = WidgetPrefs.loadShowChart(this, appWidgetId)
 
+        // loadChangeIndicator now never returns CHANGE_OFF — legacy
+        // values are migrated to CHANGE_1D inside WidgetPrefs.
         when (WidgetPrefs.loadChangeIndicator(this, appWidgetId)) {
-            WidgetPrefs.CHANGE_1D -> rbChange1d.isChecked = true
             WidgetPrefs.CHANGE_1W -> rbChange1w.isChecked = true
-            else -> rbChangeOff.isChecked = true
+            else -> rbChange1d.isChecked = true
         }
 
         // Restore the easter-egg toggle and let the visibility helper
@@ -411,14 +412,19 @@ class WidgetConfigActivity : Activity() {
 
         previewBackground.imageAlpha = (opacity * 255 / 100)
 
-        renderPreviewSparkline(currency, sampleOneWeek, samplePrice)
+        // The chart now spans the same window as the price-change
+        // selection, so the preview picks its endpoint accordingly.
+        val chartHistorical = when (changeMode) {
+            WidgetPrefs.CHANGE_1W -> sampleOneWeek
+            else -> sampleOneDay
+        }
+        renderPreviewSparkline(currency, chartHistorical, samplePrice, changeMode)
 
         val historical: Double? = when (changeMode) {
-            WidgetPrefs.CHANGE_1D -> sampleOneDay
             WidgetPrefs.CHANGE_1W -> sampleOneWeek
-            else -> null
+            else -> sampleOneDay
         }
-        if (changeMode == WidgetPrefs.CHANGE_OFF || historical == null) {
+        if (historical == null) {
             previewChange.visibility = View.GONE
         } else {
             // Scale by trackedAmount so the preview matches what the
@@ -450,22 +456,22 @@ class WidgetConfigActivity : Activity() {
      * Real cached history (if the user already has a placed widget that
      * fetched it) is preferred so the preview matches what the live
      * widget will paint. With no cache we synthesise a plausible
-     * 7-day curve from the sample week-ago and current price so the
+     * curve from the sample period-ago and current price so the
      * preview still shows *something* — empty preview is the bug
      * report's symptom.
+     *
+     * The selected [changeMode] picks the window: CHANGE_1D reads the
+     * 24-hour cache, CHANGE_1W the 7-day cache. The current sample is
+     * always appended as the rightmost data point so the line ends at
+     * "now" — same convention as the live widget.
      */
     private fun renderPreviewSparkline(
         currency: String,
-        weekAgo: Double?,
+        periodAgo: Double?,
         currentSample: Double,
+        changeMode: String,
     ) {
         if (!cbShowChart.isChecked) {
-            previewSparkline.visibility = View.GONE
-            return
-        }
-
-        val series = cachedSeriesFor(currency) ?: synthesiseSeries(weekAgo, currentSample)
-        if (series == null || series.size < 2) {
             previewSparkline.visibility = View.GONE
             return
         }
@@ -483,11 +489,40 @@ class WidgetConfigActivity : Activity() {
         val density = resources.displayMetrics.density
         val widthPx = previewContainer.width
         val heightPx = previewContainer.height
+        val strokePx = (1.5f * density).coerceAtLeast(1.5f)
+
+        // BTC mode: always paint a flat green line in the preview, same
+        // visual joke the live widget paints. Bypasses every series /
+        // cache / up-or-down code path.
+        if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) {
+            val color = getColor(R.color.sparkline_up)
+            val bmp = SparklineRenderer.renderFlat(
+                widthPx = widthPx,
+                heightPx = heightPx,
+                color = color,
+                strokePx = strokePx,
+            )
+            if (bmp == null) {
+                previewSparkline.visibility = View.GONE
+                return
+            }
+            previewSparkline.setImageBitmap(bmp)
+            previewSparkline.visibility = View.VISIBLE
+            return
+        }
+
+        val rawSeries = cachedSeriesFor(currency, changeMode)
+            ?: synthesiseSeries(periodAgo, currentSample)
+        if (rawSeries == null || rawSeries.size < 2) {
+            previewSparkline.visibility = View.GONE
+            return
+        }
+        // Always paint with the latest sample on the right edge.
+        val series = appendLatest(rawSeries, currentSample)
 
         val colorRes = if (SparklineRenderer.isUp(series))
             R.color.sparkline_up else R.color.sparkline_down
         val color = getColor(colorRes)
-        val strokePx = (1.5f * density).coerceAtLeast(1.5f)
 
         val bmp = SparklineRenderer.render(
             values = series,
@@ -505,14 +540,14 @@ class WidgetConfigActivity : Activity() {
     }
 
     /**
-     * Pull a real series out of the global history cache (the same one
-     * the live widget reads). Returns null when no widget has fetched
+     * Pull a real series out of the global history cache for [period]
+     * (CHANGE_1D or CHANGE_1W). Returns null when no widget has fetched
      * yet, the cache is corrupt, or the parsed series is too short.
      * SATS-mode rides on the USD series and inverts each point, mirroring
      * [BitcoinPriceWidgetProvider.buildSparklineBitmap].
      */
-    private fun cachedSeriesFor(currency: String): DoubleArray? {
-        val cached = WidgetPrefs.loadHistoryJson(this) ?: return null
+    private fun cachedSeriesFor(currency: String, period: String): DoubleArray? {
+        val cached = WidgetPrefs.loadHistoryJson(this, period) ?: return null
         val parsed = HistoryFetcher.parse(cached) as? HistoryResult.Success ?: return null
         val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
         val baseCurrency = if (isSats) WidgetPrefs.CURRENCY_USD else currency
@@ -527,13 +562,29 @@ class WidgetConfigActivity : Activity() {
     }
 
     /**
-     * Build a synthetic 7-day curve when we have no cached history. We
-     * trace a gently wavy path between the week-ago sample and the
-     * current sample so the line shape reads as "a real chart" rather
-     * than a straight diagonal. BTC mode (no historical) returns null —
-     * the chart simply hides for that mode.
+     * Append [latest] as a new rightmost point to [series]. If the
+     * existing tail is already equal to [latest] (no real movement
+     * since the last cached sample) we skip the append so the line
+     * doesn't end with a degenerate horizontal segment.
      */
-    private fun synthesiseSeries(weekAgo: Double?, current: Double): DoubleArray? {
+    private fun appendLatest(series: DoubleArray, latest: Double): DoubleArray {
+        if (!latest.isFinite()) return series
+        if (series.isNotEmpty() && series.last() == latest) return series
+        val out = DoubleArray(series.size + 1)
+        System.arraycopy(series, 0, out, 0, series.size)
+        out[series.size] = latest
+        return out
+    }
+
+    /**
+     * Build a synthetic curve when we have no cached history. We trace
+     * a gently wavy path between the period-ago sample and the current
+     * sample so the line shape reads as "a real chart" rather than a
+     * straight diagonal. BTC mode (no historical) returns null — the
+     * chart simply hides for that mode.
+     */
+    private fun synthesiseSeries(periodAgo: Double?, current: Double): DoubleArray? {
+        val weekAgo = periodAgo
         if (weekAgo == null || !weekAgo.isFinite() || !current.isFinite()) return null
         val n = 24
         val out = DoubleArray(n)
@@ -627,9 +678,8 @@ class WidgetConfigActivity : Activity() {
     }
 
     private fun selectedChangeIndicator(): String = when {
-        rbChange1d.isChecked -> WidgetPrefs.CHANGE_1D
         rbChange1w.isChecked -> WidgetPrefs.CHANGE_1W
-        else -> WidgetPrefs.CHANGE_OFF
+        else -> WidgetPrefs.CHANGE_1D
     }
 
     private fun persistAndFinish() {

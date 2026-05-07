@@ -8,10 +8,14 @@ import java.net.URL
 import java.util.Locale
 
 /**
- * Fetches the 7-day BTC price history from cheeserobot.org used to draw
- * the optional faint sparkline behind the price text.
+ * Fetches a BTC price history from cheeserobot.org used to draw the
+ * optional faint sparkline behind the price text. Two windows are
+ * supported, each backed by its own endpoint:
  *
- * Upstream shape (JSON array, oldest -> newest, ~4-hour spacing):
+ *   - [PERIOD_1D] → /price/price-hist-1d.json   (~25 hourly samples)
+ *   - [PERIOD_7D] → /price/price-hist-7d.json   (~43 four-hourly samples)
+ *
+ * Upstream shape (JSON array, oldest -> newest):
  *   [
  *     {"when_unix": 1777449600, "price_usd": 77567, "price_eur": 66270},
  *     {"when_unix": 1777464000, "price_usd": 76733, "price_eur": 65617},
@@ -46,17 +50,30 @@ data class HistoryPoint(
 object HistoryFetcher {
 
     private const val TAG = "CheeseBTC"
-    private const val URL_STR = "https://cheeserobot.org/price/price-hist-7d.json"
+    private const val URL_7D = "https://cheeserobot.org/price/price-hist-7d.json"
+    private const val URL_1D = "https://cheeserobot.org/price/price-hist-1d.json"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 10_000
     private const val SNIPPET_MAX = 160
 
-    /** Fetch and parse the 7-day series. MUST be called off the main thread. */
-    fun fetchHistory(): HistoryResult {
+    /** Period selectors. Match WidgetPrefs.HISTORY_1D / HISTORY_7D. */
+    const val PERIOD_1D = "1D"
+    const val PERIOD_7D = "1W"
+
+    private fun urlFor(period: String): String = when (period.uppercase()) {
+        PERIOD_1D -> URL_1D
+        else -> URL_7D
+    }
+
+    /**
+     * Fetch and parse the price history for [period] ([PERIOD_1D] or
+     * [PERIOD_7D]). MUST be called off the main thread.
+     */
+    fun fetchHistory(period: String = PERIOD_7D): HistoryResult {
         val raw = try {
-            fetchRaw()
+            fetchRaw(urlFor(period))
         } catch (t: Throwable) {
-            Log.w(TAG, "History network fetch failed", t)
+            Log.w(TAG, "History network fetch failed ($period)", t)
             return HistoryResult.Error(
                 "Network: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
                 t,
@@ -64,7 +81,7 @@ object HistoryFetcher {
         }
 
         if (raw is FetchOutcome.HttpError) {
-            Log.w(TAG, "History HTTP ${raw.code}: ${raw.snippet}")
+            Log.w(TAG, "History HTTP ${raw.code} ($period): ${raw.snippet}")
             return HistoryResult.Error("HTTP ${raw.code}: ${raw.snippet}")
         }
         val body = (raw as FetchOutcome.Body).text
@@ -121,10 +138,10 @@ object HistoryFetcher {
     }
 
     @Throws(Throwable::class)
-    private fun fetchRaw(): FetchOutcome {
+    private fun fetchRaw(urlStr: String): FetchOutcome {
         var conn: HttpURLConnection? = null
         try {
-            conn = (URL(URL_STR).openConnection() as HttpURLConnection).apply {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
                 requestMethod = "GET"

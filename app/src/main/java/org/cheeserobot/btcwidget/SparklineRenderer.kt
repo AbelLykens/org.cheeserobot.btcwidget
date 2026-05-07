@@ -126,6 +126,39 @@ object SparklineRenderer {
     }
 
     /**
+     * Draw a single flat horizontal line centred vertically. Used by
+     * BTC-mode widgets, where there's no fetch and no historical
+     * series — "1 BTC has always been worth 1 BTC" deserves a line
+     * that says exactly that. Returns null only when the requested
+     * canvas is non-positive.
+     */
+    fun renderFlat(
+        widthPx: Int,
+        heightPx: Int,
+        color: Int,
+        lineAlpha: Int = DEFAULT_LINE_ALPHA,
+        strokePx: Float = DEFAULT_STROKE_PX,
+    ): Bitmap? {
+        if (widthPx <= 0 || heightPx <= 0) return null
+        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = strokePx
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            this.color = (color and 0x00FFFFFF) or
+                (lineAlpha.coerceIn(0, 255) shl 24)
+        }
+        // Match the horizontal padding [render] uses so the BTC line
+        // visually lines up with a real series painted at the same size.
+        val padHoriz = strokePx
+        val y = heightPx / 2f
+        canvas.drawLine(padHoriz, y, widthPx - padHoriz, y, paint)
+        return bmp
+    }
+
+    /**
      * Convenience wrapper: pick the right colour based on whether the
      * 7-day series is up or down. First and last values define the
      * direction; intermediate movement doesn't affect the colour.

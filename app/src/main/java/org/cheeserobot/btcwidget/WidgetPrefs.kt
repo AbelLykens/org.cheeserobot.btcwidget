@@ -19,9 +19,11 @@ import android.content.Context
  *                         rendered with 2 decimal places
  *   thousandsSeparator  - one of SEPARATOR_*; controls how groups of
  *                         three digits are visually separated
- *   changeIndicator     - "OFF" / "1D" / "1W"; toggles the red/green
- *                         percentage-change line at the bottom of the
- *                         widget
+ *   changeIndicator     - "1D" / "1W"; selects the time window for the
+ *                         red/green percentage-change line at the bottom
+ *                         AND the (optional) chart background. Stored
+ *                         values of "OFF" from earlier versions are
+ *                         silently migrated to "1D" on read.
  *   lastSuccessAt       - epoch ms of last successful price fetch
  *   lastPriceText       - last successfully rendered price string
  *   lastRawPrice        - last successfully fetched RAW current price
@@ -36,12 +38,19 @@ import android.content.Context
  *   lastNetworkAt       - epoch ms of the most recent network attempt
  *                         across ALL widgets, used to rate-limit
  *                         user-triggered refreshes.
- *   lastHistoryAt       - epoch ms of the most recent successful 7-day
- *                         history fetch. Used to enforce the hourly cap
- *                         on the (optional) sparkline endpoint.
- *   historyJson         - cached body of the last successful 7-day
- *                         history fetch. Re-parsed on each render so we
- *                         don't have to refetch every 30-min tick.
+ *   lastHistory{1D,7D}At - epoch ms of the most recent successful
+ *                         price-history fetch for that window. Each
+ *                         endpoint is rate-limited to one fetch per
+ *                         hour (the upstream JSON updates coarsely).
+ *   history{1D,7D}Json   - cached body of the last successful history
+ *                         fetch for that window. Re-parsed on each
+ *                         render so we don't refetch every 30-min tick.
+ *   latestUpstream{Usd,Eur}
+ *                       - last successfully fetched RAW upstream price
+ *                         (Double) for that currency, alongside its
+ *                         timestamp. Used to append a "now" point on
+ *                         the right edge of the chart so it always ends
+ *                         at the most recent price the app knows about.
  *
  * Per-widget (sparkline):
  *   showChart           - bool, default true; toggles the optional
@@ -67,8 +76,23 @@ object WidgetPrefs {
     private const val KEY_LAST_ERROR_PREFIX = "last_error_"
     private const val KEY_LAST_ERROR_AT_PREFIX = "last_error_at_"
     private const val KEY_LAST_NETWORK_AT_GLOBAL = "last_network_at_global"
-    private const val KEY_LAST_HISTORY_AT_GLOBAL = "last_history_at_global"
-    private const val KEY_HISTORY_JSON_GLOBAL = "history_json_global"
+    // The 7-day cache keys were the only history caches before v2.8;
+    // their on-disk names are kept verbatim so an upgrade doesn't drop
+    // the existing cached body.
+    private const val KEY_LAST_HISTORY_7D_AT_GLOBAL = "last_history_at_global"
+    private const val KEY_HISTORY_7D_JSON_GLOBAL = "history_json_global"
+    // 24-hour history cache (v2.8+). Independent endpoint, independent
+    // hourly refresh window — see HistoryFetcher and the provider's
+    // maybeRefreshHistory.
+    private const val KEY_LAST_HISTORY_1D_AT_GLOBAL = "last_history_1d_at_global"
+    private const val KEY_HISTORY_1D_JSON_GLOBAL = "history_1d_json_global"
+    // Latest fetched upstream USD / EUR price (raw, no tracked-amount
+    // multiplication) plus the timestamp of that fetch. Stored globally
+    // so any widget — and the chart renderer — can append a "now" point
+    // without re-fetching. Saved every successful PriceFetcher round trip.
+    private const val KEY_LATEST_UPSTREAM_USD_GLOBAL = "latest_upstream_usd_global"
+    private const val KEY_LATEST_UPSTREAM_EUR_GLOBAL = "latest_upstream_eur_global"
+    private const val KEY_LATEST_UPSTREAM_AT_GLOBAL = "latest_upstream_at_global"
     private const val KEY_SHOW_CHART_PREFIX = "show_chart_"
     private const val KEY_MOSCOW_TIME_PREFIX = "moscow_time_"
     private const val KEY_HIDE_CURRENCY_ICON_PREFIX = "hide_currency_icon_"
@@ -97,7 +121,9 @@ object WidgetPrefs {
     const val SEPARATOR_SPACE = "SPACE"
     const val SEPARATOR_NONE = "NONE"
 
-    // Change-indicator modes.
+    // Price-change modes. CHANGE_OFF is no longer offered in the UI
+    // (the bottom indicator is now always shown), but the constant
+    // stays so older saved prefs can still be recognised and migrated.
     const val CHANGE_OFF = "OFF"
     const val CHANGE_1D = "1D"
     const val CHANGE_1W = "1W"
@@ -108,7 +134,14 @@ object WidgetPrefs {
     const val DEFAULT_TRACKED_AMOUNT = 1.0
     const val DEFAULT_SHOW_DECIMALS = false
     const val DEFAULT_SEPARATOR = SEPARATOR_AUTO
-    const val DEFAULT_CHANGE_INDICATOR = CHANGE_OFF
+
+    /**
+     * Default price-change window. 24h is the more common reading and
+     * matches the JSON the app is least likely to have to wait an hour
+     * for — most users opening the widget in the morning want to know
+     * "did it move overnight?" rather than the weekly trend.
+     */
+    const val DEFAULT_CHANGE_INDICATOR = CHANGE_1D
     const val DEFAULT_SHOW_CHART = true
 
     /**
@@ -229,20 +262,32 @@ object WidgetPrefs {
     // ---- Change indicator -------------------------------------------------
 
     fun saveChangeIndicator(context: Context, appWidgetId: Int, mode: String) {
+        // CHANGE_OFF is no longer a user-facing option — the bottom
+        // indicator is always shown. We coerce any unrecognised input
+        // (including legacy CHANGE_OFF passed by older callers) to the
+        // 24h default so on-disk values stay within the live set.
         val normalised = when (mode.uppercase()) {
-            CHANGE_1D -> CHANGE_1D
             CHANGE_1W -> CHANGE_1W
-            else -> CHANGE_OFF
+            else -> CHANGE_1D
         }
         prefs(context).edit()
             .putString(KEY_CHANGE_INDICATOR_PREFIX + appWidgetId, normalised)
             .apply()
     }
 
+    /**
+     * Returns one of [CHANGE_1D] or [CHANGE_1W]. Any legacy [CHANGE_OFF]
+     * value still on disk is silently migrated to [DEFAULT_CHANGE_INDICATOR]
+     * so callers never have to handle an "off" branch.
+     */
     fun loadChangeIndicator(context: Context, appWidgetId: Int): String {
-        return prefs(context).getString(
+        val raw = prefs(context).getString(
             KEY_CHANGE_INDICATOR_PREFIX + appWidgetId, DEFAULT_CHANGE_INDICATOR
         ) ?: DEFAULT_CHANGE_INDICATOR
+        return when (raw.uppercase()) {
+            CHANGE_1W -> CHANGE_1W
+            else -> CHANGE_1D
+        }
     }
 
     // ---- Show-chart (optional 7-day sparkline) ---------------------------
@@ -393,31 +438,101 @@ object WidgetPrefs {
         prefs(context).edit().putLong(KEY_LAST_NETWORK_AT_GLOBAL, epochMs).apply()
     }
 
-    // ---- 7-day history cache (global, hourly refresh) --------------------
+    // ---- Price-history caches (global, hourly refresh) -------------------
 
-    /** Epoch ms of the last successful history fetch, or 0 if never. */
-    fun loadLastHistoryAt(context: Context): Long {
-        return prefs(context).getLong(KEY_LAST_HISTORY_AT_GLOBAL, 0L)
+    /**
+     * Period selectors used by the cache helpers. Match the [CHANGE_1D]
+     * / [CHANGE_1W] string set so callers can pass the user's chosen
+     * change-indicator mode straight through.
+     */
+    const val HISTORY_1D = CHANGE_1D
+    const val HISTORY_7D = CHANGE_1W
+
+    private fun atKeyFor(period: String): String = when (period.uppercase()) {
+        HISTORY_1D -> KEY_LAST_HISTORY_1D_AT_GLOBAL
+        else -> KEY_LAST_HISTORY_7D_AT_GLOBAL
+    }
+
+    private fun bodyKeyFor(period: String): String = when (period.uppercase()) {
+        HISTORY_1D -> KEY_HISTORY_1D_JSON_GLOBAL
+        else -> KEY_HISTORY_7D_JSON_GLOBAL
+    }
+
+    /** Epoch ms of the last successful history fetch for [period], or 0 if never. */
+    fun loadLastHistoryAt(context: Context, period: String): Long {
+        return prefs(context).getLong(atKeyFor(period), 0L)
     }
 
     /**
      * Store the raw JSON body alongside the timestamp so a later render
-     * can re-parse without another network round trip. The body is small
-     * (~2 KB for 43 points) so SharedPreferences is fine.
+     * can re-parse without another network round trip. Bodies are small
+     * (~2 KB for 24-43 points) so SharedPreferences is fine.
      */
     fun saveHistoryJson(
         context: Context,
+        period: String,
         body: String,
         epochMs: Long = System.currentTimeMillis()
     ) {
         prefs(context).edit()
-            .putString(KEY_HISTORY_JSON_GLOBAL, body)
-            .putLong(KEY_LAST_HISTORY_AT_GLOBAL, epochMs)
+            .putString(bodyKeyFor(period), body)
+            .putLong(atKeyFor(period), epochMs)
             .apply()
     }
 
-    fun loadHistoryJson(context: Context): String? {
-        return prefs(context).getString(KEY_HISTORY_JSON_GLOBAL, null)
+    fun loadHistoryJson(context: Context, period: String): String? {
+        return prefs(context).getString(bodyKeyFor(period), null)
+    }
+
+    // ---- Latest fetched upstream prices (global) -------------------------
+
+    /**
+     * Save the raw upstream USD/EUR price snapshot from a successful
+     * fetch. Either currency may be null if the feed didn't carry it
+     * (the cheeserobot.org feed always carries both today, but the
+     * format isn't strictly contracted). Stored alongside [epochMs] so
+     * the chart renderer can decide whether the cached "now" point is
+     * recent enough to bother appending.
+     */
+    fun saveLatestUpstreamPrices(
+        context: Context,
+        usd: Double?,
+        eur: Double?,
+        epochMs: Long = System.currentTimeMillis(),
+    ) {
+        val ed = prefs(context).edit()
+        if (usd != null && usd.isFinite()) {
+            ed.putLong(
+                KEY_LATEST_UPSTREAM_USD_GLOBAL,
+                java.lang.Double.doubleToRawLongBits(usd),
+            )
+        }
+        if (eur != null && eur.isFinite()) {
+            ed.putLong(
+                KEY_LATEST_UPSTREAM_EUR_GLOBAL,
+                java.lang.Double.doubleToRawLongBits(eur),
+            )
+        }
+        ed.putLong(KEY_LATEST_UPSTREAM_AT_GLOBAL, epochMs)
+        ed.apply()
+    }
+
+    /**
+     * Latest fetched upstream price for [currency]. Only USD and EUR
+     * are stored; SATS rides on USD and is computed at the call site.
+     */
+    fun loadLatestUpstreamPrice(context: Context, currency: String): Double? {
+        val key = when (currency.uppercase()) {
+            CURRENCY_EUR -> KEY_LATEST_UPSTREAM_EUR_GLOBAL
+            CURRENCY_USD -> KEY_LATEST_UPSTREAM_USD_GLOBAL
+            else -> return null
+        }
+        return loadDouble(context, key)
+    }
+
+    /** Epoch ms of the most recent saveLatestUpstreamPrices call, or 0. */
+    fun loadLatestUpstreamAt(context: Context): Long {
+        return prefs(context).getLong(KEY_LATEST_UPSTREAM_AT_GLOBAL, 0L)
     }
 
     private fun loadDouble(context: Context, key: String): Double? {

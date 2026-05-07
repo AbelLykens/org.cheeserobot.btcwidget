@@ -7,57 +7,52 @@
     non-default, the activity auto-expands the section on entry so the
     user can see what's already set.
 
-    A live preview at the top sits on a checkered grey background so the
-    opacity slider has a visible effect even before the widget is on a
-    real wallpaper.
+    Layout shape:
+      LinearLayout (vertical, fills the screen)
+        ├─ STICKY HEADER (no scroll): icon, title, subtitle, preview.
+        │   The preview stays visible at the top of the screen while the
+        │   user scrolls through the controls so every setting change has
+        │   immediate visual feedback without scroll-juggling.
+        └─ ScrollView (weight=1, takes remaining vertical space)
+              └─ All currency / advanced / action controls live here.
+
+    The preview's wrapping FrameLayout gets a checkered grey background
+    at runtime so the user can see how their chosen opacity reads against
+    any home-screen wallpaper.
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:orientation="vertical">
 
+    <!-- ================================================================
+         Sticky header. Trimmed down to just the logo + preview so the
+         scrollable controls below get more breathing room. The title /
+         subtitle TextViews used to live here ("Choose your currency",
+         "Update your widget settings"); they were decorative and pushed
+         the preview further down on small screens, so they're gone now.
+         ================================================================ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingHorizontal="24dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp">
 
         <ImageView
-            android:layout_width="64dp"
-            android:layout_height="64dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
             android:contentDescription="@string/btc_icon_desc"
             android:src="@drawable/ic_bitcoin" />
 
         <TextView
-            android:id="@+id/title_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/config_title"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/subtitle_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
-            android:gravity="center"
-            android:text="@string/config_subtitle"
-            android:textSize="14sp" />
-
-        <!-- ============================================================
-             Live preview. The wrapping FrameLayout gets a checkered
-             grey background at runtime so the user can see how their
-             chosen opacity reads against any home-screen wallpaper.
-             ============================================================ -->
-        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
+            android:layout_marginBottom="4dp"
             android:text="@string/config_preview_label"
             android:textSize="13sp"
             android:textStyle="bold" />
@@ -65,310 +60,337 @@
         <FrameLayout
             android:id="@+id/preview_container"
             android:layout_width="match_parent"
-            android:layout_height="100dp"
-            android:layout_marginBottom="20dp">
+            android:layout_height="100dp">
 
             <include layout="@layout/widget_bitcoin_price" />
         </FrameLayout>
+    </LinearLayout>
 
-        <!-- ============================================================
-             Simple section — currency only. Always visible.
-             ============================================================ -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:text="@string/config_currency_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/rg_currency"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:orientation="vertical">
-
-            <RadioButton
-                android:id="@+id/rb_usd"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_usd" />
-
-            <RadioButton
-                android:id="@+id/rb_eur"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_eur" />
-
-            <RadioButton
-                android:id="@+id/rb_btc"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_btc" />
-
-            <RadioButton
-                android:id="@+id/rb_sats"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_sats" />
-        </RadioGroup>
-
-        <!-- ============================================================
-             Advanced toggle. Tapping flips the visibility of
-             advanced_section below and updates this caret.
-             ============================================================ -->
-        <TextView
-            android:id="@+id/advanced_toggle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:minHeight="44dp"
-            android:paddingVertical="10dp"
-            android:text="@string/config_advanced_show"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+    <!-- ================================================================
+         Scrollable controls. weight=1 makes this view absorb every
+         pixel of vertical space the sticky header didn't claim.
+         fillViewport keeps short content centred when the screen is
+         taller than the controls themselves.
+         ================================================================ -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
-            android:id="@+id/advanced_section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:visibility="gone">
+            android:paddingHorizontal="24dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="24dp">
 
-            <!-- Tracked amount -->
+            <!-- ============================================================
+                 Simple section — currency only. Always visible.
+                 ============================================================ -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="6dp"
-                android:text="@string/config_tracked_amount_label"
+                android:text="@string/config_currency_label"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
-            <EditText
-                android:id="@+id/et_tracked_amount"
+            <RadioGroup
+                android:id="@+id/rg_currency"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:autofillHints="@null"
-                android:hint="@string/config_tracked_amount_hint"
-                android:importantForAutofill="no"
-                android:inputType="numberDecimal"
-                android:maxLength="16"
-                tools:text="1" />
+                android:layout_marginBottom="16dp"
+                android:orientation="vertical">
 
+                <RadioButton
+                    android:id="@+id/rb_usd"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_usd" />
+
+                <RadioButton
+                    android:id="@+id/rb_eur"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_eur" />
+
+                <RadioButton
+                    android:id="@+id/rb_btc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_btc" />
+
+                <RadioButton
+                    android:id="@+id/rb_sats"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_sats" />
+            </RadioGroup>
+
+            <!-- ============================================================
+                 Advanced toggle. Tapping flips the visibility of
+                 advanced_section below and updates this caret.
+                 ============================================================ -->
             <TextView
+                android:id="@+id/advanced_toggle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
-                android:alpha="0.7"
-                android:text="@string/config_tracked_amount_hint_long"
-                android:textSize="12sp" />
-
-            <!-- Number formatting -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:text="@string/config_format_label"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:minHeight="44dp"
+                android:paddingVertical="10dp"
+                android:text="@string/config_advanced_show"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/config_separator_label"
-                    android:textSize="13sp" />
-
-                <Spinner
-                    android:id="@+id/sp_separator"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="160dp" />
-            </LinearLayout>
-
-            <!--
-                Easter-egg "Moscow Time" toggle. Hidden by default; the
-                activity flips visibility based on currency==SATS AND
-                a thousands separator being in use. The wink in the
-                copy is intentional — anyone who recognises the meme
-                will know what they're enabling.
-            -->
-            <CheckBox
-                android:id="@+id/cb_moscow_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="-8dp"
-                android:layout_marginBottom="20dp"
-                android:text="@string/config_moscow_time"
-                android:visibility="gone" />
-
-            <!-- Background opacity -->
             <LinearLayout
+                android:id="@+id/advanced_section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:orientation="horizontal">
+                android:layout_marginTop="4dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- Tracked amount -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_tracked_amount_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/et_tracked_amount"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:autofillHints="@null"
+                    android:hint="@string/config_tracked_amount_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="numberDecimal"
+                    android:maxLength="16"
+                    tools:text="1" />
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/config_opacity_label"
+                    android:layout_marginBottom="20dp"
+                    android:alpha="0.7"
+                    android:text="@string/config_tracked_amount_hint_long"
+                    android:textSize="12sp" />
+
+                <!-- Number formatting -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_format_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="20dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/config_separator_label"
+                        android:textSize="13sp" />
+
+                    <Spinner
+                        android:id="@+id/sp_separator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="160dp" />
+                </LinearLayout>
+
+                <!--
+                    Easter-egg "Moscow Time" toggle. Hidden by default; the
+                    activity flips visibility based on currency==SATS AND
+                    a thousands separator being in use. The wink in the
+                    copy is intentional — anyone who recognises the meme
+                    will know what they're enabling.
+                -->
+                <CheckBox
+                    android:id="@+id/cb_moscow_time"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="-8dp"
+                    android:layout_marginBottom="20dp"
+                    android:text="@string/config_moscow_time"
+                    android:visibility="gone" />
+
+                <!-- Background opacity -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/config_opacity_label"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/opacity_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        tools:text="75%" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/sb_opacity"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="20dp"
+                    android:max="100" />
+
+                <!--
+                    Display toggles. All read in the affirmative ("Show X")
+                    and are checked by default whenever the corresponding
+                    feature is visible out of the box. The activity inverts
+                    each binding against the underlying KEY_HIDE_* prefs at
+                    load/save time so on-disk semantics don't change.
+                -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_display_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <CheckBox
+                    android:id="@+id/cb_show_logo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_show_logo" />
+
+                <!--
+                    Currency marker:
+                      - USD/EUR/BTC: the "$" / "€" / "₿" prefix on the
+                        price text.
+                      - SATS: the sat-symbol icon (in SATS mode the icon
+                        slot doubles as the currency marker, so this
+                        composes with "Show Bitcoin logo" — either being
+                        unchecked hides the icon).
+                -->
+                <CheckBox
+                    android:id="@+id/cb_show_currency_icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_show_currency_icon" />
+
+                <CheckBox
+                    android:id="@+id/cb_show_unit_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_show_unit_label" />
+
+                <CheckBox
+                    android:id="@+id/cb_show_decimals"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_show_decimals" />
+
+                <CheckBox
+                    android:id="@+id/cb_show_chart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_show_chart" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="20dp"
+                    android:alpha="0.7"
+                    android:text="@string/config_show_chart_hint"
+                    android:textSize="12sp" />
+
+                <!--
+                    Price change. Drives BOTH the bottom red/green percentage
+                    line AND, when "Show chart background" above is on, the
+                    period covered by the sparkline (24h or 7d).
+                -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_change_label"
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/opacity_value"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    tools:text="75%" />
+                    android:layout_marginBottom="6dp"
+                    android:alpha="0.7"
+                    android:text="@string/config_change_hint"
+                    android:textSize="12sp" />
+
+                <RadioGroup
+                    android:id="@+id/rg_change"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/rb_change_1d"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/config_change_1d" />
+
+                    <RadioButton
+                        android:id="@+id/rb_change_1w"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/config_change_1w" />
+                </RadioGroup>
             </LinearLayout>
 
-            <SeekBar
-                android:id="@+id/sb_opacity"
+            <!-- Action buttons -->
+            <Button
+                android:id="@+id/btn_save"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
-                android:max="100" />
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="@string/config_save" />
 
-            <!--
-                Display toggles. All read in the affirmative ("Show X")
-                and are checked by default whenever the corresponding
-                feature is visible out of the box. The activity inverts
-                each binding against the underlying KEY_HIDE_* prefs at
-                load/save time so on-disk semantics don't change.
-            -->
+            <Button
+                android:id="@+id/btn_cancel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_cancel" />
+
+            <!-- Version footer — populated at runtime from PackageInfo. -->
             <TextView
-                android:layout_width="match_parent"
+                android:id="@+id/version_footer"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:text="@string/config_display_label"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <CheckBox
-                android:id="@+id/cb_show_logo"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_show_logo" />
-
-            <!--
-                Currency marker:
-                  - USD/EUR/BTC: the "$" / "€" / "₿" prefix on the
-                    price text.
-                  - SATS: the sat-symbol icon (in SATS mode the icon
-                    slot doubles as the currency marker, so this
-                    composes with "Show Bitcoin logo" — either being
-                    unchecked hides the icon).
-            -->
-            <CheckBox
-                android:id="@+id/cb_show_currency_icon"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_show_currency_icon" />
-
-            <CheckBox
-                android:id="@+id/cb_show_unit_label"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_show_unit_label" />
-
-            <CheckBox
-                android:id="@+id/cb_show_decimals"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/config_show_decimals" />
-
-            <CheckBox
-                android:id="@+id/cb_show_chart"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
-                android:text="@string/config_show_chart" />
-
-            <!-- Change indicator (red/green % line) -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:text="@string/config_change_label"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="6dp"
-                android:alpha="0.7"
-                android:text="@string/config_change_hint"
-                android:textSize="12sp" />
-
-            <RadioGroup
-                android:id="@+id/rg_change"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:orientation="vertical">
-
-                <RadioButton
-                    android:id="@+id/rb_change_off"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/config_change_off" />
-
-                <RadioButton
-                    android:id="@+id/rb_change_1d"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/config_change_1d" />
-
-                <RadioButton
-                    android:id="@+id/rb_change_1w"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/config_change_1w" />
-            </RadioGroup>
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="16dp"
+                android:alpha="0.5"
+                android:gravity="center"
+                android:textSize="11sp"
+                tools:text="Version 1.0" />
         </LinearLayout>
-
-        <!-- Action buttons -->
-        <Button
-            android:id="@+id/btn_save"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
-            android:text="@string/config_save" />
-
-        <Button
-            android:id="@+id/btn_cancel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/config_cancel" />
-
-        <!-- Version footer — populated at runtime from PackageInfo. -->
-        <TextView
-            android:id="@+id/version_footer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="16dp"
-            android:alpha="0.5"
-            android:gravity="center"
-            android:textSize="11sp"
-            tools:text="Version 1.0" />
-    </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</LinearLayout>
