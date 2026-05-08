@@ -61,7 +61,12 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                refreshWidgets(context, appWidgetManager, appWidgetIds)
+                // Scheduled (system 30-min tick / wake-up) refresh.
+                // userInitiated=false keeps the widget silent on
+                // transient failures so a freshly-woken phone with a
+                // half-attached radio doesn't grey itself out before the
+                // network has even had a chance to come back.
+                refreshWidgets(context, appWidgetManager, appWidgetIds, userInitiated = false)
             } finally {
                 pendingResult.finish()
             }
@@ -110,7 +115,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                refreshWidgets(context, mgr, ids)
+                refreshWidgets(context, mgr, ids, userInitiated = true)
             } finally {
                 pendingResult.finish()
             }
@@ -144,6 +149,23 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
          */
         private const val MIN_USER_REFRESH_INTERVAL_MS = 15_000L
 
+        /**
+         * Time-since-last-success threshold for switching the widget
+         * into the greyed-out "stale" visual. Earlier versions used a
+         * consecutive-failure counter, which meant a freshly-woken
+         * phone whose radio hadn't reattached yet would visibly grey
+         * out within two scheduled ticks even though the displayed
+         * price was minutes old. By going time-based we keep the
+         * "everything's fine" look across transient failures and only
+         * surface staleness once the data on screen is genuinely old.
+         *
+         * 3 hours == roughly 6 missed 30-min update ticks. Anything
+         * shorter and a phone that's been in a tunnel for a bit looks
+         * broken; anything much longer and we'd be hiding a real,
+         * persistent fetch problem from the user.
+         */
+        private const val STALE_AFTER_MS = 3 * 60 * 60 * 1000L
+
         private enum class WidgetState {
             NORMAL,
             BATTERY_SAVER,
@@ -158,11 +180,24 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
          * - Every other widget mode (USD, EUR, SATS, BLOCK) rides on a
          *   single `/price/summary.json` round trip — one fetch, all
          *   data: prices, history, and the latest-block snapshot.
+         *
+         * @param userInitiated  true for taps and "save settings"
+         *   refreshes; false for the system-scheduled 30-min tick and
+         *   wake-up `onUpdate`. Scheduled refreshes deliberately do NOT
+         *   repaint the widget on transient failures — the user only
+         *   ever sees a screen change when we actually have new data
+         *   (or once the cached data has crossed [STALE_AFTER_MS]).
+         *   That's what fixes the "wakes up greyed out" bug: a freshly
+         *   woken phone with the radio still reattaching reports no
+         *   network, but instead of greying the widget out we leave
+         *   the launcher's last good frame on screen and try again
+         *   next tick.
          */
         private fun refreshWidgets(
             context: Context,
             mgr: AppWidgetManager,
             ids: IntArray,
+            userInitiated: Boolean,
         ) {
             if (ids.isEmpty()) return
 
@@ -178,21 +213,40 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             if (networkIds.isEmpty()) return
 
             if (!hasNetwork(context)) {
-                for (id in networkIds) {
-                    WidgetPrefs.recordFailure(context, id, reason = "No network")
-                    val cached = WidgetPrefs.loadLastPriceText(context, id) ?: "—"
-                    mgr.updateAppWidget(
-                        id, buildViews(context, cached, id, WidgetState.OFFLINE)
-                    )
+                if (userInitiated) {
+                    // The user explicitly asked, so they want to see
+                    // *something* change — surface OFFLINE styling.
+                    for (id in networkIds) {
+                        WidgetPrefs.recordFailure(context, id, reason = "No network")
+                        val cached = WidgetPrefs.loadLastPriceText(context, id) ?: "—"
+                        mgr.updateAppWidget(
+                            id, buildViews(context, cached, id, WidgetState.OFFLINE)
+                        )
+                    }
+                } else {
+                    // Scheduled refresh, no network — usually a wake-up
+                    // race where the radio hasn't fully reattached yet.
+                    // Don't repaint, don't bump the failure counter.
+                    // Just let the staleness threshold decide whether
+                    // the launcher's existing frame still looks fine.
+                    for (id in networkIds) {
+                        maybeRepaintIfStale(context, mgr, id)
+                    }
                 }
                 return
             }
 
-            for (id in networkIds) {
-                val loadingState = computeState(context, id, hasFreshPrice = false)
-                mgr.updateAppWidget(
-                    id, buildViews(context, "…", id, loadingState)
-                )
+            // The "…" loading flash exists for tap-to-refresh feedback
+            // — for a scheduled tick the user isn't watching, so this
+            // would just briefly clobber the price for no reason. Only
+            // paint it when the refresh is user-initiated.
+            if (userInitiated) {
+                for (id in networkIds) {
+                    val loadingState = computeState(context, id, hasFreshPrice = false)
+                    mgr.updateAppWidget(
+                        id, buildViews(context, "…", id, loadingState)
+                    )
+                }
             }
 
             // Mark the attempt up-front so a second tap arriving while
@@ -243,8 +297,27 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             saveLatestUpstream(context, results)
 
             for (id in networkIds) {
-                renderResult(context, mgr, id, results)
+                renderResult(context, mgr, id, results, userInitiated)
             }
+        }
+
+        /**
+         * If the cached data has aged past [STALE_AFTER_MS], repaint
+         * the widget once so the user sees the grey "stale" treatment.
+         * Otherwise leave the launcher's last frame in place — the
+         * caller has decided we have nothing new worth showing.
+         */
+        private fun maybeRepaintIfStale(
+            context: Context,
+            mgr: AppWidgetManager,
+            appWidgetId: Int,
+        ) {
+            val state = computeState(context, appWidgetId, hasFreshPrice = false)
+            if (state == WidgetState.NORMAL) return
+            val priceText = WidgetPrefs.loadLastPriceText(context, appWidgetId) ?: "—"
+            mgr.updateAppWidget(
+                appWidgetId, buildViews(context, priceText, appWidgetId, state)
+            )
         }
 
         /**
@@ -354,12 +427,23 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             return SATS_PER_BTC / usdPrice
         }
 
-        /** Paint a single network-backed widget from a shared result map. */
+        /**
+         * Paint a single network-backed widget from a shared result map.
+         *
+         * On [PriceResult.Error] we still record the failure for
+         * diagnostics, but the *visual* repaint is gated on
+         * [userInitiated]. A failed scheduled refresh just bumps the
+         * counter and leaves the screen alone (the user won't notice
+         * one missed tick); a failed user tap still surfaces the
+         * cached price with stale/offline styling so the tap feels
+         * acknowledged.
+         */
         private fun renderResult(
             context: Context,
             mgr: AppWidgetManager,
             appWidgetId: Int,
             results: Map<String, PriceResult>,
+            userInitiated: Boolean,
         ) {
             val currency = WidgetPrefs.loadCurrency(context, appWidgetId)
             val trackedAmount = WidgetPrefs.loadTrackedAmount(context, appWidgetId)
@@ -432,6 +516,13 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                     WidgetPrefs.recordFailure(
                         context, appWidgetId, reason = result.reason
                     )
+                    if (!userInitiated) {
+                        // Scheduled tick: don't visibly clobber the
+                        // existing frame. Only repaint if the cached
+                        // data has aged past the stale threshold.
+                        maybeRepaintIfStale(context, mgr, appWidgetId)
+                        return
+                    }
                     val cached = WidgetPrefs.loadLastPriceText(context, appWidgetId)
                     val text = cached ?: "—"
                     val state = errorState(context)
@@ -489,19 +580,52 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
             )
             CoroutineScope(Dispatchers.IO).launch {
                 delay(50)
-                refreshWidgets(context, appWidgetManager, intArrayOf(appWidgetId))
+                // userInitiated=true: the user just saved settings and
+                // is presumably looking at the screen — keep the
+                // visible "…" → result transition.
+                refreshWidgets(
+                    context, appWidgetManager, intArrayOf(appWidgetId),
+                    userInitiated = true,
+                )
             }
         }
 
+        /**
+         * Decide what visual state the widget should be in for this
+         * paint. NORMAL when we have (or recently had) good data,
+         * STALE only once the cached price has aged past
+         * [STALE_AFTER_MS], BATTERY_SAVER when the system is power-saving.
+         *
+         * Time-based rather than failure-count-based on purpose: a
+         * couple of failed scheduled fetches right after wake (typical
+         * when the radio is still reattaching) used to trip the old
+         * `failCount >= 2` rule and grey out a widget whose displayed
+         * price was still only minutes old.
+         *
+         * For a brand-new widget that has never had a successful
+         * fetch we fall back to the older network/failure-aware logic
+         * — that path needs a "we tried and it didn't work" hint
+         * because there isn't any cached price for the user to read.
+         */
         private fun computeState(
             context: Context,
             appWidgetId: Int,
             hasFreshPrice: Boolean
         ): WidgetState {
             if (isPowerSaveOn(context)) return WidgetState.BATTERY_SAVER
-            if (!hasNetwork(context)) return WidgetState.OFFLINE
-            val failCount = WidgetPrefs.loadFailCount(context, appWidgetId)
-            if (!hasFreshPrice && failCount >= 2) return WidgetState.STALE
+            if (hasFreshPrice) return WidgetState.NORMAL
+            val lastSuccess = WidgetPrefs.loadLastSuccess(context, appWidgetId)
+            if (lastSuccess <= 0L) {
+                // No baseline yet — keep the legacy hints so a widget
+                // added while offline still looks "off" instead of
+                // pretending all is well with a "—" placeholder.
+                if (!hasNetwork(context)) return WidgetState.OFFLINE
+                val failCount = WidgetPrefs.loadFailCount(context, appWidgetId)
+                if (failCount >= 2) return WidgetState.STALE
+                return WidgetState.NORMAL
+            }
+            val age = System.currentTimeMillis() - lastSuccess
+            if (age > STALE_AFTER_MS) return WidgetState.STALE
             return WidgetState.NORMAL
         }
 

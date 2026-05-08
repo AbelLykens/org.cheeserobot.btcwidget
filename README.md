@@ -6,6 +6,7 @@ A tiny, no-nonsense Android home-screen widget that shows the latest Bitcoin
 price at a glance. No accounts, no ads, no tracking — just the number.
 
 Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
+F-Droid: <https://f-droid.org/en/packages/org.cheeserobot.btcwidget>
 Zapstore: <https://zapstore.dev/apps/org.cheeserobot.btcwidget>
 Price feed: [`https://cheeserobot.org/price/summary.json`](https://cheeserobot.org/price/summary.json)
 
@@ -51,7 +52,7 @@ Price feed: [`https://cheeserobot.org/price/summary.json`](https://cheeserobot.o
   guessing.
 - **Tiny footprint**. No background services, no analytics, no third-party
   SDKs. The app contacts exactly one host: `cheeserobot.org`.
-- **Free and open source** (MIT). Aiming for F-Droid.
+- **Free and open source** (MIT). Available on F-Droid.
 
 ---
 
@@ -65,7 +66,10 @@ Available on Zapstore:
 Open the link in the Zapstore app (or browse to it from inside the app)
 and tap install.
 
-### From F-Droid (recommended once published)
+### From F-Droid (recommended)
+
+Available on F-Droid:
+<https://f-droid.org/en/packages/org.cheeserobot.btcwidget>
 
 Search for **Cheese BTC Widget** in the F-Droid client and tap install.
 

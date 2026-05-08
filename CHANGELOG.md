@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1] - 2026-05-08
+
+### Fixed
+- **Widget no longer greys itself out on wake-up.** When the device
+  woke from doze and the radio hadn't fully reattached yet, a
+  scheduled refresh would briefly see "no network", paint the widget
+  in the OFFLINE state (grey icon, dimmed text, no live background),
+  and bump an internal failure counter — two such ticks in a row was
+  enough to keep the widget greyed out indefinitely. The scheduled
+  30-min refresh path now leaves the widget alone on transient
+  failures: the launcher's last good frame stays on screen until we
+  actually have new data. The "…" loading flash is also limited to
+  user-initiated refreshes (taps and "save settings"), so a
+  scheduled tick can no longer briefly clobber the visible price.
+
+### Changed
+- **Stale styling is now time-based, not failure-based.** The widget
+  switches to its greyed-out "stale" treatment once the cached price
+  has aged past three hours — about six missed scheduled ticks —
+  rather than after two consecutive fetch failures. Transient
+  hiccups no longer change how the widget looks; only data that's
+  actually getting old does.
+- **F-Droid availability.** Cheese BTC Widget is now also published
+  on F-Droid: <https://f-droid.org/en/packages/org.cheeserobot.btcwidget>.
+  No app behaviour changes, just an extra install channel.
+
+[3.1]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v3.1
+
 ## [3.0] - 2026-05-07
 
 ### Added
@@ -291,6 +319,36 @@ notifications), and the visual design has been refreshed.
 ### Fixed
 - **Battery-saver "off" was not detected.** The
   `ACTION_POWER_SAVE_MODE_CHANGED` broadcast is sent with
+  `FLAG_RECEIVER_REGISTERED_ONLY` by the system, so a manifest receiver
+  never sees it. The dynamic listener now lives inside the battery-
+  saver dialog activity, which broadcasts a refresh on dismiss so the
+  widget repaints against the *current* state every time.
+- **Battery-saver Toast was suppressed** on devices where the user had
+  disabled notifications. Replaced with a dialog Activity, which isn't
+  subject to that suppression.
+
+[2.1]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.1
+[2.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v2.0
+
+## [1.0] - 2026-05-04
+
+### Added
+- Initial release.
+- Home-screen widget that displays the latest BTC price from
+  `https://cheeserobot.org/price/latest.json`.
+- USD / EUR picker shown when the widget is added; each placed widget
+  remembers its own currency.
+- Auto-sizing price text and a fixed Bitcoin logo.
+- Tap-to-refresh and ~30 minute automatic refresh.
+- Launcher activity with a live price preview, "How to add the widget"
+  steps, and a "Refresh existing widgets" button.
+- Error notifications surfacing the actual fetch failure reason
+  (network exception, HTTP status + body snippet, JSON parse error,
+  or "currency key missing").
+- JVM unit tests for the JSON traversal logic.
+
+[1.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v1.0
+POWER_SAVE_MODE_CHANGED` broadcast is sent with
   `FLAG_RECEIVER_REGISTERED_ONLY` by the system, so a manifest receiver
   never sees it. The dynamic listener now lives inside the battery-
   saver dialog activity, which broadcasts a refresh on dismiss so the
