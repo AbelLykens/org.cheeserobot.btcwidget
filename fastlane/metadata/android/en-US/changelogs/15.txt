@@ -1,0 +1,5 @@
+v3.2 - Price feed moved to its own subdomain.
+
+* Summary endpoint is now price.cheeserobot.org/price/summary.json
+  instead of cheeserobot.org/price/summary.json. Same payload, same
+  one-round-trip refresh — just served from a dedicated host.

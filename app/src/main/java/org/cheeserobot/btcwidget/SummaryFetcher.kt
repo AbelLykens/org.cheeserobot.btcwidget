@@ -106,7 +106,7 @@ data class Summary(
 object SummaryFetcher {
 
     private const val TAG = "CheeseBTC"
-    private const val URL_STR = "https://cheeserobot.org/price/summary.json"
+    private const val URL_STR = "https://price.cheeserobot.org/price/summary.json"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 10_000
     private const val SNIPPET_MAX = 160

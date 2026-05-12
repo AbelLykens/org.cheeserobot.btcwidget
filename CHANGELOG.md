@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2] - 2026-05-12
+
+### Changed
+- **Price feed moved to a dedicated subdomain.** The widget now fetches
+  its consolidated payload from
+  `https://price.cheeserobot.org/price/summary.json` instead of
+  `https://cheeserobot.org/price/summary.json`. Same JSON shape, same
+  one-round-trip refresh — only the host changed, so the upstream can
+  serve the price feed from its own box without dragging the rest of
+  the site along for the ride.
+
+[3.2]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v3.2
+
 ## [3.1] - 2026-05-08
 
 ### Fixed

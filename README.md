@@ -8,7 +8,7 @@ price at a glance. No accounts, no ads, no tracking — just the number.
 Source: <https://github.com/AbelLykens/org.cheeserobot.btcwidget>
 F-Droid: <https://f-droid.org/en/packages/org.cheeserobot.btcwidget>
 Zapstore: <https://zapstore.dev/apps/org.cheeserobot.btcwidget>
-Price feed: [`https://cheeserobot.org/price/summary.json`](https://cheeserobot.org/price/summary.json)
+Price feed: [`https://price.cheeserobot.org/price/summary.json`](https://price.cheeserobot.org/price/summary.json)
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-home-screen.png"
@@ -171,10 +171,10 @@ Remove the widget and add a fresh one — it'll ask again.
 
 ## Privacy
 
-The widget contacts exactly one host: `cheeserobot.org`. Exactly one
+The widget contacts exactly one host: `price.cheeserobot.org`. Exactly one
 `GET` request is made per refresh:
 
-1. `https://cheeserobot.org/price/summary.json` — a consolidated payload
+1. `https://price.cheeserobot.org/price/summary.json` — a consolidated payload
    carrying the current USD/EUR price, the 24-hour and 7-day history
    series, and the latest bitcoin block (height + miner). Fetched every
    ~30 minutes and on tap. Earlier versions made up to three separate
@@ -253,7 +253,7 @@ CheeseWidget/
 ## How the price is fetched
 
 `SummaryFetcher.fetchSummary()` does a plain `HttpURLConnection` GET on
-`https://cheeserobot.org/price/summary.json` and parses the unified
+`https://price.cheeserobot.org/price/summary.json` and parses the unified
 payload into:
 
 - the current USD / EUR price (used as-is, or inverted to sats),

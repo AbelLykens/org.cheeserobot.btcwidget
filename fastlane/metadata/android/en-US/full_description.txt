@@ -2,7 +2,7 @@ Cheese BTC Widget puts the latest Bitcoin price right on your home screen — no
 
 When you add the widget you choose what to track: US Dollars, Euros, sats per USD, the constant 1 BTC, or the latest bitcoin block height. Each placed widget remembers its own choice, so you can have several side by side.
 
-Data is fetched over HTTPS from cheeserobot.org/price/summary.json (the price data originates from CoinDesk). One round trip carries the current price, the 24-hour and 7-day history series, and the latest-block snapshot. The widget refreshes itself roughly every 30 minutes — Android's minimum update interval for app widgets — and you can tap it to refresh on demand.
+Data is fetched over HTTPS from price.cheeserobot.org/price/summary.json (the price data originates from CoinDesk). One round trip carries the current price, the 24-hour and 7-day history series, and the latest-block snapshot. The widget refreshes itself roughly every 30 minutes — Android's minimum update interval for app widgets — and you can tap it to refresh on demand.
 
 Features
 * Pick USD ($), EUR (€), sats per USD, 1 BTC, or the latest block height when adding the widget.
@@ -16,7 +16,7 @@ Features
 What this app is NOT
 * No tracking. No ads. No analytics.
 * No accounts, no signups, no Google services.
-* Only one network host is contacted: cheeserobot.org. No third-party servers.
+* Only one network host is contacted: price.cheeserobot.org. No third-party servers.
 * No background services — only Android's normal widget update mechanism.
 
 Source code
