@@ -60,6 +60,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            // Don't embed git revision into META-INF/version-control-info.textproto.
+            // AGP enables this by default, which writes the build-time commit SHA
+            // into the APK and breaks F-Droid's reproducible-build verification
+            // any time someone builds from a different commit than F-Droid does.
+            vcsInfo {
+                include = false
+            }
         }
     }
 
