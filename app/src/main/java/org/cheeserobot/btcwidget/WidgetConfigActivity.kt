@@ -14,8 +14,13 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.Editable
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextWatcher
+import android.text.method.LinkMovementMethod
+import android.text.style.URLSpan
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -29,6 +34,11 @@ import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -122,6 +132,26 @@ class WidgetConfigActivity : Activity() {
     private lateinit var colorSwatchBlue: View
     private var selectedPriceColor: Int = WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT
 
+    // ---- Custom backend URL --------------------------------------------
+    //
+    // Global (not per-widget) — every placed widget shares the one upstream
+    // fetch, so a custom backend is an app-wide setting even though the UI
+    // lives inside this per-widget config screen. The activity validates
+    // off the main thread whenever the field loses focus or the user taps
+    // Reset, and only persists the value when validation passes.
+    private lateinit var etBackendUrl: EditText
+    private lateinit var tvBackendStatus: TextView
+    private lateinit var tvBackendHelp: TextView
+    private lateinit var btnBackendReset: Button
+    /** In-flight validation, cancelled when a newer one starts. */
+    private var backendValidationJob: Job? = null
+    /**
+     * Last value that was either successfully validated and saved, or
+     * confirmed as the bundled default. Used to suppress re-validation
+     * when the field loses focus without any actual change.
+     */
+    private var lastSavedBackendUrl: String = WidgetPrefs.DEFAULT_BACKEND_URL
+
     // Preview views (looked up inside preview_container)
     private lateinit var previewContainer: FrameLayout
     private lateinit var previewBackground: ImageView
@@ -181,9 +211,11 @@ class WidgetConfigActivity : Activity() {
         wireSeparatorAdapter()
         installCheckerBackground()
         loadInitialState()
+        loadBackendInitialState()
         wireSeekBar()
         wireAdvancedToggle()
         wirePreviewListeners()
+        wireBackendListeners()
         showVersionFooter()
         updatePreview()
 
@@ -231,6 +263,11 @@ class WidgetConfigActivity : Activity() {
         colorSwatchRed = findViewById(R.id.color_swatch_red)
         colorSwatchGreen = findViewById(R.id.color_swatch_green)
         colorSwatchBlue = findViewById(R.id.color_swatch_blue)
+
+        etBackendUrl = findViewById(R.id.et_backend_url)
+        tvBackendStatus = findViewById(R.id.tv_backend_status)
+        tvBackendHelp = findViewById(R.id.tv_backend_help)
+        btnBackendReset = findViewById(R.id.btn_backend_reset)
 
         previewContainer = findViewById(R.id.preview_container)
         previewBackground = previewContainer.findViewById(R.id.background_view)
@@ -354,6 +391,151 @@ class WidgetConfigActivity : Activity() {
         }
     }
 
+    /**
+     * Populate the backend URL row from prefs and render the help line
+     * with the pricemon link inline. Reset button is enabled only when
+     * a non-default URL is currently in the field — tapping it on a
+     * field that already holds the default would be a no-op.
+     */
+    private fun loadBackendInitialState() {
+        val custom = WidgetPrefs.loadCustomBackendUrl(this)
+        val initial = custom ?: WidgetPrefs.DEFAULT_BACKEND_URL
+        etBackendUrl.setText(initial)
+        lastSavedBackendUrl = initial
+        renderBackendStatus(
+            if (custom != null) R.string.config_backend_status_valid
+            else R.string.config_backend_status_default
+        )
+        renderBackendHelp()
+        updateResetButtonEnabled()
+    }
+
+    /**
+     * Build the help-line copy as "Compatible with pricemon." where
+     * "pricemon" is a tappable link to the project README. We use an
+     * explicit URLSpan rather than autoLink so the visible word stays
+     * "pricemon" instead of leaking the bare URL into the sentence.
+     */
+    private fun renderBackendHelp() {
+        val linkLabel = getString(R.string.config_backend_pricemon_link)
+        val full = getString(R.string.config_backend_help, linkLabel)
+        val spannable = SpannableString(full)
+        val start = full.indexOf(linkLabel)
+        if (start >= 0) {
+            spannable.setSpan(
+                URLSpan(getString(R.string.config_backend_pricemon_url)),
+                start,
+                start + linkLabel.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        tvBackendHelp.text = spannable
+        tvBackendHelp.movementMethod = LinkMovementMethod.getInstance()
+    }
+
+    private fun renderBackendStatus(stringRes: Int, vararg formatArgs: Any) {
+        tvBackendStatus.text = if (formatArgs.isEmpty()) getString(stringRes)
+        else getString(stringRes, *formatArgs)
+    }
+
+    private fun updateResetButtonEnabled() {
+        val current = etBackendUrl.text?.toString()?.trim().orEmpty()
+        btnBackendReset.isEnabled =
+            current != WidgetPrefs.DEFAULT_BACKEND_URL || WidgetPrefs.loadCustomBackendUrl(this) != null
+    }
+
+    /**
+     * Wire focus loss + IME Done action to validate-and-save the URL,
+     * and the reset button to restore the bundled default in one tap.
+     *
+     * Validation runs off the main thread so a slow or unreachable host
+     * doesn't freeze the config screen. If validation fails we leave
+     * whatever the user typed in the field (so they can fix it) but do
+     * NOT persist anything — the previously-saved URL stays active.
+     */
+    private fun wireBackendListeners() {
+        etBackendUrl.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) maybeValidateAndSaveBackend()
+        }
+        etBackendUrl.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                maybeValidateAndSaveBackend()
+                false
+            } else false
+        }
+        etBackendUrl.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                updateResetButtonEnabled()
+            }
+        })
+        btnBackendReset.setOnClickListener {
+            resetBackendToDefault()
+        }
+    }
+
+    /**
+     * If the current field contents differ from the last saved URL,
+     * kick off a validation. No-op for an unchanged value so re-entering
+     * the screen doesn't trigger a redundant network round trip.
+     */
+    private fun maybeValidateAndSaveBackend() {
+        val current = etBackendUrl.text?.toString()?.trim().orEmpty()
+        if (current == lastSavedBackendUrl) return
+        // An empty field is treated as "use the default" — same effect
+        // as tapping Reset, but reachable from the keyboard alone.
+        if (current.isEmpty()) {
+            resetBackendToDefault()
+            return
+        }
+        // Special case: typing the default URL back in is a "reset" too,
+        // but we still want to clear any stored override so future
+        // upstream URL changes flow through naturally.
+        if (current == WidgetPrefs.DEFAULT_BACKEND_URL) {
+            WidgetPrefs.resetCustomBackendUrl(this)
+            lastSavedBackendUrl = current
+            renderBackendStatus(R.string.config_backend_status_default)
+            updateResetButtonEnabled()
+            return
+        }
+        validateAndSaveBackendAsync(current)
+    }
+
+    private fun validateAndSaveBackendAsync(url: String) {
+        renderBackendStatus(R.string.config_backend_status_validating)
+        backendValidationJob?.cancel()
+        backendValidationJob = CoroutineScope(Dispatchers.Main).launch {
+            val result = withContext(Dispatchers.IO) {
+                SummaryFetcher.validate(url)
+            }
+            when (result) {
+                is BackendValidationResult.Valid -> {
+                    WidgetPrefs.saveCustomBackendUrl(this@WidgetConfigActivity, url)
+                    lastSavedBackendUrl = url
+                    renderBackendStatus(R.string.config_backend_status_valid)
+                }
+                is BackendValidationResult.Invalid -> {
+                    // Leave the previous saved URL intact — the user can
+                    // edit and retry without losing their working backend.
+                    renderBackendStatus(
+                        R.string.config_backend_status_invalid, result.reason
+                    )
+                }
+            }
+            updateResetButtonEnabled()
+        }
+    }
+
+    private fun resetBackendToDefault() {
+        backendValidationJob?.cancel()
+        WidgetPrefs.resetCustomBackendUrl(this)
+        etBackendUrl.setText(WidgetPrefs.DEFAULT_BACKEND_URL)
+        lastSavedBackendUrl = WidgetPrefs.DEFAULT_BACKEND_URL
+        renderBackendStatus(R.string.config_backend_status_default)
+        updateResetButtonEnabled()
+    }
+
     private fun hasNonDefaultAdvanced(): Boolean {
         if (WidgetPrefs.loadTrackedAmount(this, appWidgetId) != WidgetPrefs.DEFAULT_TRACKED_AMOUNT) return true
         if (WidgetPrefs.loadShowDecimals(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_DECIMALS) return true
@@ -366,6 +548,7 @@ class WidgetConfigActivity : Activity() {
         if (WidgetPrefs.loadShowChart(this, appWidgetId) != WidgetPrefs.DEFAULT_SHOW_CHART) return true
         if (WidgetPrefs.loadMoscowTime(this, appWidgetId) != WidgetPrefs.DEFAULT_MOSCOW_TIME) return true
         if (WidgetPrefs.loadPriceTextColor(this, appWidgetId) != WidgetPrefs.PRICE_TEXT_COLOR_DEFAULT) return true
+        if (WidgetPrefs.loadCustomBackendUrl(this) != null) return true
         return false
     }
 
@@ -1050,6 +1233,11 @@ class WidgetConfigActivity : Activity() {
      * id we finish immediately without touching prefs.
      */
     override fun finish() {
+        // Any in-flight backend validation is no longer interesting
+        // once the screen is going away. The user's last successfully
+        // saved URL stays active either way; an invalid in-progress
+        // entry just gets dropped.
+        backendValidationJob?.cancel()
         if (!hasPersisted && appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             hasPersisted = true
             persistAndPushUpdate()

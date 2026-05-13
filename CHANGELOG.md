@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0] - 2026-05-13
+
+### Added
+- **Custom price backend.** The configure screen now exposes a "Price
+  backend" row under Advanced options. The default URL
+  (`https://price.cheeserobot.org/price/summary.json`) is pre-filled so
+  the field doubles as documentation; anyone running their own feed
+  (e.g. a self-hosted [pricemon](https://github.com/AbelLykens/pricemon)
+  instance) can paste their URL and the widget will switch to it on
+  the next refresh. The pref is global — every placed widget shares the
+  one upstream fetch — so changing it from any widget's settings
+  screen affects all of them.
+- **Live validation.** When the field loses focus or the user taps
+  the keyboard's Done action, the activity does a one-shot fetch + parse
+  off the main thread and only saves the URL if the payload carries
+  everything the widget actually reads: both fiat prices, a non-empty
+  24h history array, a non-empty 7d history array, and a latest-block
+  snapshot. A partially-compatible feed gets refused with a short
+  human-readable reason ("Missing or non-numeric price_usd",
+  "hist_1d array missing or empty", etc.) and the previously-saved URL
+  stays active so the widget never goes dark mid-edit.
+- **One-tap reset.** A "Reset to default URL" button clears any
+  override and restores the bundled default in the field. Typing the
+  default URL back in by hand or leaving the field blank both have
+  the same effect.
+
+[4.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v4.0
+
 ## [3.2] - 2026-05-12
 
 ### Changed

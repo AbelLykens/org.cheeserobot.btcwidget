@@ -103,17 +103,43 @@ data class Summary(
     }
 }
 
+/**
+ * Outcome of a "is this URL a compatible price backend?" check, used by
+ * the configuration screen before persisting a user-supplied override.
+ *
+ * [Valid] means we fetched, parsed, AND found every field the widget
+ * actually reads (current USD+EUR price, both history arrays, the
+ * latest-block snapshot). [Invalid] carries a short, user-facing
+ * reason so the UI can surface "Missing price_usd" or similar rather
+ * than the bare exception text.
+ */
+sealed class BackendValidationResult {
+    object Valid : BackendValidationResult()
+    data class Invalid(val reason: String) : BackendValidationResult()
+}
+
 object SummaryFetcher {
 
     private const val TAG = "CheeseBTC"
-    private const val URL_STR = "https://price.cheeserobot.org/price/summary.json"
+    /**
+     * Bundled default endpoint. Mirrored in
+     * [WidgetPrefs.DEFAULT_BACKEND_URL] for the config-screen reset
+     * button — keep these two in sync if the upstream ever moves.
+     */
+    const val DEFAULT_URL = "https://price.cheeserobot.org/price/summary.json"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 10_000
     private const val SNIPPET_MAX = 160
 
-    fun fetchSummary(): SummaryResult {
+    /**
+     * Fetch the unified summary from [url] (or [DEFAULT_URL] when the
+     * caller doesn't care). Per-call URL lets the widget honour a
+     * user-supplied custom backend without threading the value through
+     * every layer of the rendering pipeline.
+     */
+    fun fetchSummary(url: String = DEFAULT_URL): SummaryResult {
         val raw = try {
-            fetchRaw()
+            fetchRaw(url)
         } catch (t: Throwable) {
             Log.w(TAG, "Summary network fetch failed", t)
             return SummaryResult.Error(
@@ -127,6 +153,66 @@ object SummaryFetcher {
         }
         val body = (raw as FetchOutcome.Body).text
         return parse(body)
+    }
+
+    /**
+     * Validate that [url] serves a payload the widget can actually use.
+     *
+     * Stricter than [fetchSummary]: we don't just need the response to
+     * parse, we need every field the rendering pipeline actually reads —
+     * both fiat prices, both history arrays, and a latest_block snapshot.
+     * That way the "Save" path can refuse a partially-compatible backend
+     * outright instead of letting the widget visibly fall over later for
+     * (say) BLOCK-mode users on a feed that only ships prices.
+     *
+     * MUST be called off the main thread.
+     */
+    fun validate(url: String): BackendValidationResult {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            return BackendValidationResult.Invalid("URL is empty")
+        }
+        val lower = trimmed.lowercase(Locale.ROOT)
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            return BackendValidationResult.Invalid("URL must start with http:// or https://")
+        }
+        val result = fetchSummary(trimmed)
+        if (result is SummaryResult.Error) {
+            return BackendValidationResult.Invalid(result.reason)
+        }
+        val s = (result as SummaryResult.Success).summary
+
+        // Current prices. Both USD and EUR must be present — the widget
+        // offers each as a top-level currency, so a feed missing either
+        // would be subtly broken for half the users.
+        if (s.currentPrice("USD") == null) {
+            return BackendValidationResult.Invalid("Missing or non-numeric price_usd")
+        }
+        if (s.currentPrice("EUR") == null) {
+            return BackendValidationResult.Invalid("Missing or non-numeric price_eur")
+        }
+
+        // History windows. The chart + change indicator both rely on these
+        // arrays being populated, so we require at least one usable point
+        // in each. We re-use the existing HistoryFetcher parser so the
+        // rule matches what the rendering pipeline will read at runtime.
+        val parsed1d = HistoryFetcher.parse(s.hist1dJson)
+        if (parsed1d !is HistoryResult.Success || parsed1d.points.isEmpty()) {
+            return BackendValidationResult.Invalid("hist_1d array missing or empty")
+        }
+        val parsed7d = HistoryFetcher.parse(s.hist7dJson)
+        if (parsed7d !is HistoryResult.Success || parsed7d.points.isEmpty()) {
+            return BackendValidationResult.Invalid("hist_7d array missing or empty")
+        }
+
+        // Latest block snapshot. Required for BLOCK-mode widgets — without
+        // it the user would pick "Block height" in the picker and see
+        // "No latest_block in summary" on screen instead of a number.
+        if (s.latestBlock == null) {
+            return BackendValidationResult.Invalid("Missing latest_block.height")
+        }
+
+        return BackendValidationResult.Valid
     }
 
     /**
@@ -185,10 +271,10 @@ object SummaryFetcher {
     }
 
     @Throws(Throwable::class)
-    private fun fetchRaw(): FetchOutcome {
+    private fun fetchRaw(urlStr: String): FetchOutcome {
         var conn: HttpURLConnection? = null
         try {
-            conn = (URL(URL_STR).openConnection() as HttpURLConnection).apply {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
                 requestMethod = "GET"

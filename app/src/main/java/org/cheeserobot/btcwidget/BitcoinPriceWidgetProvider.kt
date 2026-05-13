@@ -262,7 +262,7 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
                 .map { upstreamCurrencyFor(WidgetPrefs.loadCurrency(context, it)) }
                 .toSet()
 
-            val summary = fetchSummaryWithRetry()
+            val summary = fetchSummaryWithRetry(WidgetPrefs.loadActiveBackendUrl(context))
             val results = buildPriceResults(currencies, summary)
 
             if (summary is SummaryResult.Success) {
@@ -323,13 +323,15 @@ class BitcoinPriceWidgetProvider : AppWidgetProvider() {
         /**
          * Try once, and if the summary fetch failed wait [RETRY_DELAY_MS]
          * and try again. Mirrors the old [fetchPricesWithRetry] semantics
-         * but for the consolidated endpoint.
+         * but for the consolidated endpoint. [url] is whatever the user
+         * has configured — falls back to the bundled default when no
+         * override has been set.
          */
-        private fun fetchSummaryWithRetry(): SummaryResult {
-            val first = SummaryFetcher.fetchSummary()
+        private fun fetchSummaryWithRetry(url: String): SummaryResult {
+            val first = SummaryFetcher.fetchSummary(url)
             if (first is SummaryResult.Success) return first
             try { Thread.sleep(RETRY_DELAY_MS) } catch (_: InterruptedException) {}
-            return SummaryFetcher.fetchSummary()
+            return SummaryFetcher.fetchSummary(url)
         }
 
         /**

@@ -80,6 +80,25 @@
     <string name="config_price_color_green_desc">Green</string>
     <string name="config_price_color_blue_desc">Blue</string>
 
+    <!--
+        Custom backend URL. Lets advanced users point the widget at their
+        own price feed (e.g. a self-hosted pricemon instance). Default
+        URL is pre-filled, the field auto-validates when the user finishes
+        typing, and a reset button restores the bundled default in one
+        tap. Stored globally because all widgets share the same fetch.
+    -->
+    <string name="config_backend_label">Price backend</string>
+    <string name="config_backend_hint">https://example.com/summary.json</string>
+    <string name="config_backend_help">Advanced: point the widget at your own price feed. The format must match the default backend (price, hist_1d, hist_7d, latest_block). Compatible with %1$s.</string>
+    <string name="config_backend_pricemon_link">pricemon</string>
+    <string name="config_backend_pricemon_url">https://github.com/AbelLykens/pricemon</string>
+    <string name="config_backend_reset">Reset to default URL</string>
+    <string name="config_backend_status_idle"></string>
+    <string name="config_backend_status_validating">Checking backend…</string>
+    <string name="config_backend_status_valid">Saved — using your custom backend.</string>
+    <string name="config_backend_status_default">Using the default backend.</string>
+    <string name="config_backend_status_invalid">Not saved: %1$s</string>
+
     <string name="config_change_label">Price change</string>
     <string name="config_change_hint">Pick the time window. The percentage line at the bottom reads in this period (green up / red down) and the optional chart background covers the same span.</string>
     <string name="config_change_1d">24h</string>

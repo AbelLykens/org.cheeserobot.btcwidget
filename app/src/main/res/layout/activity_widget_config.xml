@@ -500,6 +500,63 @@
                             android:text="@string/config_change_1w" />
                     </RadioGroup>
                 </LinearLayout>
+
+                <!--
+                    Custom price backend. Pre-filled with the bundled
+                    default; the activity revalidates whenever the field
+                    loses focus or the user taps Reset. Successful
+                    validation saves immediately to a GLOBAL pref (every
+                    placed widget shares one fetch, so a custom backend
+                    is an app-wide setting even though the UI lives here).
+                -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_backend_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/et_backend_url"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:autofillHints="@null"
+                    android:hint="@string/config_backend_hint"
+                    android:importantForAutofill="no"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:maxLines="2"
+                    tools:text="https://price.cheeserobot.org/price/summary.json" />
+
+                <TextView
+                    android:id="@+id/tv_backend_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:alpha="0.85"
+                    android:textSize="12sp"
+                    tools:text="Using the default backend." />
+
+                <Button
+                    android:id="@+id/btn_backend_reset"
+                    style="?android:attr/buttonBarButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/config_backend_reset" />
+
+                <TextView
+                    android:id="@+id/tv_backend_help"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:alpha="0.7"
+                    android:autoLink="web"
+                    android:linksClickable="true"
+                    android:textSize="12sp"
+                    tools:text="Advanced: point the widget at your own feed. Compatible with pricemon (https://github.com/AbelLykens/pricemon)." />
             </LinearLayout>
 
             <!--

@@ -106,6 +106,20 @@ object WidgetPrefs {
     private const val KEY_HIDE_CURRENCY_ICON_PREFIX = "hide_currency_icon_"
     private const val KEY_PRICE_TEXT_COLOR_PREFIX = "price_text_color_"
 
+    // Optional user-supplied price backend. Global (not per-widget) since
+    // every placed widget shares the one upstream fetch — running two
+    // widgets against two different endpoints would just race for the
+    // same set of caches. Absent / blank ⇒ DEFAULT_BACKEND_URL is used.
+    private const val KEY_CUSTOM_BACKEND_URL_GLOBAL = "custom_backend_url_global"
+
+    /**
+     * Default upstream the widget fetches from. Mirrors the URL hard-coded
+     * in [SummaryFetcher]; exposed here so the config screen can pre-fill
+     * the field, and so the reset button can restore it without the UI
+     * caring where the constant lives.
+     */
+    const val DEFAULT_BACKEND_URL = "https://price.cheeserobot.org/price/summary.json"
+
     const val CURRENCY_USD = "USD"
     const val CURRENCY_EUR = "EUR"
 
@@ -365,6 +379,47 @@ object WidgetPrefs {
         return prefs(context).getInt(
             KEY_PRICE_TEXT_COLOR_PREFIX + appWidgetId, PRICE_TEXT_COLOR_DEFAULT
         )
+    }
+
+    // ---- Custom backend URL (global) -------------------------------------
+
+    /**
+     * Persist a user-supplied price-backend URL. Trimmed for incidental
+     * whitespace; an empty result is normalised to "no override" so the
+     * loader naturally falls back to [DEFAULT_BACKEND_URL].
+     */
+    fun saveCustomBackendUrl(context: Context, url: String) {
+        val trimmed = url.trim()
+        val ed = prefs(context).edit()
+        if (trimmed.isEmpty()) {
+            ed.remove(KEY_CUSTOM_BACKEND_URL_GLOBAL)
+        } else {
+            ed.putString(KEY_CUSTOM_BACKEND_URL_GLOBAL, trimmed)
+        }
+        ed.apply()
+    }
+
+    /**
+     * The user-supplied override, or null when none has been set (in
+     * which case the widget should fetch [DEFAULT_BACKEND_URL]).
+     */
+    fun loadCustomBackendUrl(context: Context): String? {
+        val raw = prefs(context).getString(KEY_CUSTOM_BACKEND_URL_GLOBAL, null) ?: return null
+        val trimmed = raw.trim()
+        return trimmed.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * The URL the fetcher should actually hit on the next round trip —
+     * the user's override if set, otherwise the bundled default.
+     */
+    fun loadActiveBackendUrl(context: Context): String {
+        return loadCustomBackendUrl(context) ?: DEFAULT_BACKEND_URL
+    }
+
+    /** Clear any user override; the next fetch falls back to the default URL. */
+    fun resetCustomBackendUrl(context: Context) {
+        prefs(context).edit().remove(KEY_CUSTOM_BACKEND_URL_GLOBAL).apply()
     }
 
     // ---- Hide currency icon ----------------------------------------------

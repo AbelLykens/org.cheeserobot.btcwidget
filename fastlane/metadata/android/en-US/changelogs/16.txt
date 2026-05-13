@@ -1,0 +1,11 @@
+v4.0 - Bring your own price backend.
+
+* New "Price backend" row in Advanced options. Paste a custom feed
+  URL (e.g. a self-hosted pricemon instance) and the widget switches
+  to it on the next refresh. Default URL is pre-filled.
+* The activity validates the URL in the background and only saves it
+  if the payload carries every field the widget actually reads —
+  prices, both history windows, and the latest-block snapshot. A
+  partially-compatible feed is refused with a short reason so the
+  current backend never gets clobbered mid-edit.
+* "Reset to default URL" button restores the bundled feed in one tap.

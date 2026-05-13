@@ -117,8 +117,11 @@ class LauncherActivity : Activity() {
             // carries both fiat prices (and the latest-block info we
             // don't need on this screen). We project it back into the
             // per-currency PriceResult shape the existing formatter
-            // already understands.
-            val summary = SummaryFetcher.fetchSummary()
+            // already understands. URL honours the user's custom backend
+            // pick from the config screen, falling back to the default.
+            val summary = SummaryFetcher.fetchSummary(
+                WidgetPrefs.loadActiveBackendUrl(this@LauncherActivity)
+            )
             val usd = priceResultFor(summary, WidgetPrefs.CURRENCY_USD)
             val eur = priceResultFor(summary, WidgetPrefs.CURRENCY_EUR)
             withContext(Dispatchers.Main) {
