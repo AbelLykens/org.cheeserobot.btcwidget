@@ -3,7 +3,7 @@ Categories:
 License: MIT
 AuthorName: Abel Lykens
 AuthorEmail: claude@ngutechnology.nl
-WebSite: https://github.com/AbelLykens/org.cheeserobot.btcwidget
+WebSite: https://cheeserobot.org/
 SourceCode: https://github.com/AbelLykens/org.cheeserobot.btcwidget
 IssueTracker: https://github.com/AbelLykens/org.cheeserobot.btcwidget/issues
 Changelog: https://github.com/AbelLykens/org.cheeserobot.btcwidget/blob/HEAD/CHANGELOG.md
@@ -16,9 +16,36 @@ Binaries:
   https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/download/v%v/CheeseBTCWidget-v%v.apk
 
 Builds:
-  - versionName: '2.0'
-    versionCode: 5
-    commit: 17a015e8d8e6542a148df66834012cf5ad76c2c1
+  - versionName: '2.3'
+    versionCode: 8
+    commit: 099bf84ce20642ea199bfbf5b58f48278c83b71a
+    subdir: app
+    gradle:
+      - yes
+    antifeatures:
+      - NonFreeNet
+
+  - versionName: '3.1'
+    versionCode: 14
+    commit: bf2098088cb8ccf13af67b47d68a7675b36d8d3b
+    subdir: app
+    gradle:
+      - yes
+    antifeatures:
+      - NonFreeNet
+
+  - versionName: '3.2'
+    versionCode: 15
+    commit: d5fe9c162186efeccd71640a6ecdc2b6518e3778
+    subdir: app
+    gradle:
+      - yes
+    antifeatures:
+      - NonFreeNet
+
+  - versionName: '4.0'
+    versionCode: 16
+    commit: 814210b7f5e3b18f4b489636733ffdc2c09e980a
     subdir: app
     gradle:
       - yes
@@ -27,5 +54,5 @@ AllowedAPKSigningKeys: 5c28e61da21ca36fb56433261cd49eff9cfc6b7221941cb52d2375cc2
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: '2.0'
-CurrentVersionCode: 5
+CurrentVersion: '4.0'
+CurrentVersionCode: 16
