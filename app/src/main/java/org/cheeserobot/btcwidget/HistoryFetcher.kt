@@ -3,17 +3,16 @@ package org.cheeserobot.btcwidget
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
 
 /**
- * Fetches a BTC price history from cheeserobot.org used to draw the
- * optional faint sparkline behind the price text. Two windows are
- * supported, each backed by its own endpoint:
- *
- *   - [PERIOD_1D] → /price/price-hist-1d.json   (~25 hourly samples)
- *   - [PERIOD_7D] → /price/price-hist-7d.json   (~43 four-hourly samples)
+ * Parser for the BTC price-history arrays that ride inside the unified
+ * `/price/summary.json` payload ([SummaryFetcher.Summary.hist1dJson] and
+ * `.hist7dJson`). The dedicated `/price/price-hist-{1d,7d}.json` endpoints
+ * — and the network code that hit them — were retired in v2.8 once the
+ * summary endpoint started carrying both windows. What's left here is the
+ * pure parser the rendering pipeline calls each time it builds a sparkline
+ * from the cached JSON body.
  *
  * Upstream shape (JSON array, oldest -> newest):
  *   [
@@ -21,13 +20,6 @@ import java.util.Locale
  *     {"when_unix": 1777464000, "price_usd": 76733, "price_eur": 65617},
  *     ...
  *   ]
- *
- * This is a *non-essential* feature. A failure here never breaks the
- * widget; the caller falls back to the static background.
- *
- * The endpoint is updated server-side at most every couple of hours, so
- * callers should also throttle requests on their end. See
- * [BitcoinPriceWidgetProvider]'s hourly cap.
  */
 sealed class HistoryResult {
     data class Success(
@@ -38,7 +30,7 @@ sealed class HistoryResult {
     data class Error(val reason: String, val cause: Throwable? = null) : HistoryResult()
 }
 
-/** One sample from the 7-day series. Either price may be null if the
+/** One sample from the price-history series. Either price may be null if the
  *  upstream skipped that field for the row, but the typical feed has
  *  both populated. */
 data class HistoryPoint(
@@ -50,43 +42,7 @@ data class HistoryPoint(
 object HistoryFetcher {
 
     private const val TAG = "CheeseBTC"
-    private const val URL_7D = "https://cheeserobot.org/price/price-hist-7d.json"
-    private const val URL_1D = "https://cheeserobot.org/price/price-hist-1d.json"
-    private const val CONNECT_TIMEOUT_MS = 10_000
-    private const val READ_TIMEOUT_MS = 10_000
     private const val SNIPPET_MAX = 160
-
-    /** Period selectors. Match WidgetPrefs.HISTORY_1D / HISTORY_7D. */
-    const val PERIOD_1D = "1D"
-    const val PERIOD_7D = "1W"
-
-    private fun urlFor(period: String): String = when (period.uppercase()) {
-        PERIOD_1D -> URL_1D
-        else -> URL_7D
-    }
-
-    /**
-     * Fetch and parse the price history for [period] ([PERIOD_1D] or
-     * [PERIOD_7D]). MUST be called off the main thread.
-     */
-    fun fetchHistory(period: String = PERIOD_7D): HistoryResult {
-        val raw = try {
-            fetchRaw(urlFor(period))
-        } catch (t: Throwable) {
-            Log.w(TAG, "History network fetch failed ($period)", t)
-            return HistoryResult.Error(
-                "Network: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
-                t,
-            )
-        }
-
-        if (raw is FetchOutcome.HttpError) {
-            Log.w(TAG, "History HTTP ${raw.code} ($period): ${raw.snippet}")
-            return HistoryResult.Error("HTTP ${raw.code}: ${raw.snippet}")
-        }
-        val body = (raw as FetchOutcome.Body).text
-        return parse(body)
-    }
 
     /** Pure parser, factored out so unit tests don't need a network stack. */
     internal fun parse(body: String): HistoryResult {
@@ -130,39 +86,6 @@ object HistoryFetcher {
             if (v.isFinite()) list.add(v)
         }
         return list.toDoubleArray()
-    }
-
-    private sealed class FetchOutcome {
-        data class Body(val text: String) : FetchOutcome()
-        data class HttpError(val code: Int, val snippet: String) : FetchOutcome()
-    }
-
-    @Throws(Throwable::class)
-    private fun fetchRaw(urlStr: String): FetchOutcome {
-        var conn: HttpURLConnection? = null
-        try {
-            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                connectTimeout = CONNECT_TIMEOUT_MS
-                readTimeout = READ_TIMEOUT_MS
-                requestMethod = "GET"
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "CheeseWidget-Android/1.0")
-            }
-            val code = conn.responseCode
-            return if (code in 200..299) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                FetchOutcome.Body(body)
-            } else {
-                val errBody = try {
-                    conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                } catch (_: Throwable) {
-                    ""
-                }
-                FetchOutcome.HttpError(code, errBody.take(SNIPPET_MAX).replace('\n', ' '))
-            }
-        } finally {
-            conn?.disconnect()
-        }
     }
 
     private fun readLong(obj: JSONObject, key: String): Long? {

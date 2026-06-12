@@ -43,19 +43,30 @@ import java.util.Locale
  */
 sealed class SummaryResult {
     data class Success(val summary: Summary) : SummaryResult()
-    data class Error(val reason: String, val cause: Throwable? = null) : SummaryResult()
+    data class Error(val reason: String, val cause: Throwable? = null) : SummaryResult() {
+        /**
+         * True for failures that have a realistic chance of succeeding
+         * on an immediate retry: network-level errors (radio still
+         * attaching, transient DNS hiccup) and HTTP 5xx (server-side
+         * blip). HTTP 4xx and malformed-JSON failures are deterministic
+         * — retrying 2 seconds later just burns the broadcast window.
+         * The reason prefixes are produced in [SummaryFetcher.fetchSummary]
+         * / [SummaryFetcher.fetchRaw]; keep them in sync.
+         */
+        val isTransient: Boolean
+            get() = reason.startsWith("Network:") || reason.startsWith("HTTP 5")
+    }
 }
 
 /**
  * Block snapshot pulled from `summary.latest_block`. Only the fields the
  * widget actually renders are kept; the upstream shape is wider but the
- * extra keys (hash, nTx, size) aren't needed on the home screen and are
- * left out of prefs to keep the cache small.
+ * extra keys (hash, nTx, size, time) aren't needed on the home screen and
+ * are left out of prefs to keep the cache small.
  */
 data class LatestBlock(
     val height: Long,
     val minerName: String?,
-    val time: String?,
 )
 
 data class Summary(
@@ -127,8 +138,15 @@ object SummaryFetcher {
      * button — keep these two in sync if the upstream ever moves.
      */
     const val DEFAULT_URL = "https://price.cheeserobot.org/price/summary.json"
-    private const val CONNECT_TIMEOUT_MS = 10_000
-    private const val READ_TIMEOUT_MS = 10_000
+    // Kept deliberately tight. The widget's scheduled refresh runs in a
+    // BroadcastReceiver with goAsync(), whose budget is roughly 10
+    // seconds — a 10s+10s timeout pair could blow straight through it
+    // and get the process killed mid-fetch. 4s+4s keeps even the
+    // worst-case user-initiated path (fetch + 2s pause + retry) inside
+    // a tolerable window, and the price endpoint normally answers in
+    // well under a second.
+    private const val CONNECT_TIMEOUT_MS = 4_000
+    private const val READ_TIMEOUT_MS = 4_000
     private const val SNIPPET_MAX = 160
 
     /**
@@ -254,15 +272,17 @@ object SummaryFetcher {
         )
     }
 
-    private fun parseBlock(obj: JSONObject): LatestBlock? {
+    // Internal (not private) so ExtendedFetcher can reuse the exact same
+    // block-snapshot rules when lifting latest_block out of a batched
+    // multi-currency response.
+    internal fun parseBlock(obj: JSONObject): LatestBlock? {
         val height = when (val v = obj.opt("height")) {
             is Number -> v.toLong()
             is String -> v.toLongOrNull() ?: return null
             else -> return null
         }
         val miner = obj.optString("miner_name", "").takeIf { it.isNotBlank() }
-        val time = obj.optString("time", "").takeIf { it.isNotBlank() }
-        return LatestBlock(height = height, minerName = miner, time = time)
+        return LatestBlock(height = height, minerName = miner)
     }
 
     private sealed class FetchOutcome {

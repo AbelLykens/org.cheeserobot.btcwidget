@@ -5,8 +5,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure-JVM unit tests for the 7-day history parser. Network code lives
- * in [HistoryFetcher.fetchHistory] and isn't exercised here.
+ * Pure-JVM unit tests for the price-history parser. The historical
+ * network path that used to back this parser was retired in v2.8; the
+ * arrays now arrive embedded in the unified summary payload and only
+ * the pure [HistoryFetcher.parse] entry point survives.
  */
 class HistoryFetcherTest {
 

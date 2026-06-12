@@ -39,9 +39,11 @@ import android.content.Context
  *                         across ALL widgets, used to rate-limit
  *                         user-triggered refreshes.
  *   lastHistory{1D,7D}At - epoch ms of the most recent successful
- *                         price-history fetch for that window. Each
- *                         endpoint is rate-limited to one fetch per
- *                         hour (the upstream JSON updates coarsely).
+ *                         price-history fetch for that window. Written
+ *                         alongside the body cache; no readers today —
+ *                         the per-endpoint hourly throttle was retired
+ *                         when the summary endpoint took over and the
+ *                         arrays now refresh in lockstep with the price.
  *   history{1D,7D}Json   - cached body of the last successful history
  *                         fetch for that window. Re-parsed on each
  *                         render so we don't refetch every 30-min tick.
@@ -96,11 +98,9 @@ object WidgetPrefs {
     // Latest-block snapshot. Stored globally so every BLOCK-mode widget
     // shares one value and one fetch. Height is the bitcoin block number,
     // miner is the human-friendly pool/miner name (may be absent for
-    // unidentified blocks), time is the upstream-reported ISO timestamp
-    // (kept for "minutes since last block" rendering down the line).
+    // unidentified blocks).
     private const val KEY_LATEST_BLOCK_HEIGHT_GLOBAL = "latest_block_height_global"
     private const val KEY_LATEST_BLOCK_MINER_GLOBAL = "latest_block_miner_global"
-    private const val KEY_LATEST_BLOCK_TIME_GLOBAL = "latest_block_time_global"
     private const val KEY_SHOW_CHART_PREFIX = "show_chart_"
     private const val KEY_MOSCOW_TIME_PREFIX = "moscow_time_"
     private const val KEY_HIDE_CURRENCY_ICON_PREFIX = "hide_currency_icon_"
@@ -152,10 +152,9 @@ object WidgetPrefs {
     const val SEPARATOR_SPACE = "SPACE"
     const val SEPARATOR_NONE = "NONE"
 
-    // Price-change modes. CHANGE_OFF is no longer offered in the UI
-    // (the bottom indicator is now always shown), but the constant
-    // stays so older saved prefs can still be recognised and migrated.
-    const val CHANGE_OFF = "OFF"
+    // Price-change modes. A legacy "OFF" value used to disable the
+    // bottom indicator; the toggle was removed and the loader migrates
+    // any unknown stored value (including the old "OFF") to CHANGE_1D.
     const val CHANGE_1D = "1D"
     const val CHANGE_1W = "1W"
 
@@ -304,10 +303,10 @@ object WidgetPrefs {
     // ---- Change indicator -------------------------------------------------
 
     fun saveChangeIndicator(context: Context, appWidgetId: Int, mode: String) {
-        // CHANGE_OFF is no longer a user-facing option — the bottom
+        // The "off" branch is no longer a user-facing option — the bottom
         // indicator is always shown. We coerce any unrecognised input
-        // (including legacy CHANGE_OFF passed by older callers) to the
-        // 24h default so on-disk values stay within the live set.
+        // (including the legacy "OFF" string passed by older callers) to
+        // the 24h default so on-disk values stay within the live set.
         val normalised = when (mode.uppercase()) {
             CHANGE_1W -> CHANGE_1W
             else -> CHANGE_1D
@@ -318,7 +317,7 @@ object WidgetPrefs {
     }
 
     /**
-     * Returns one of [CHANGE_1D] or [CHANGE_1W]. Any legacy [CHANGE_OFF]
+     * Returns one of [CHANGE_1D] or [CHANGE_1W]. Any legacy "OFF"
      * value still on disk is silently migrated to [DEFAULT_CHANGE_INDICATOR]
      * so callers never have to handle an "off" branch.
      */
@@ -566,11 +565,6 @@ object WidgetPrefs {
         else -> KEY_HISTORY_7D_JSON_GLOBAL
     }
 
-    /** Epoch ms of the last successful history fetch for [period], or 0 if never. */
-    fun loadLastHistoryAt(context: Context, period: String): Long {
-        return prefs(context).getLong(atKeyFor(period), 0L)
-    }
-
     /**
      * Store the raw JSON body alongside the timestamp so a later render
      * can re-parse without another network round trip. Bodies are small
@@ -626,6 +620,17 @@ object WidgetPrefs {
     }
 
     /**
+     * Epoch ms of the most recent successful upstream price save, or 0
+     * when nothing was ever stored. Lets the chart renderer decide
+     * whether the cached "now" point is fresh enough to append — a
+     * days-old value pinned to the right edge would misrepresent the
+     * trend more than simply ending the line at the last history sample.
+     */
+    fun loadLatestUpstreamAt(context: Context): Long {
+        return prefs(context).getLong(KEY_LATEST_UPSTREAM_AT_GLOBAL, 0L)
+    }
+
+    /**
      * Latest fetched upstream price for [currency]. Only USD and EUR
      * are stored; SATS rides on USD and is computed at the call site.
      */
@@ -638,25 +643,19 @@ object WidgetPrefs {
         return loadDouble(context, key)
     }
 
-    /** Epoch ms of the most recent saveLatestUpstreamPrices call, or 0. */
-    fun loadLatestUpstreamAt(context: Context): Long {
-        return prefs(context).getLong(KEY_LATEST_UPSTREAM_AT_GLOBAL, 0L)
-    }
-
     // ---- Latest block snapshot (global) ----------------------------------
 
     /**
      * Save the latest-block snapshot from [SummaryFetcher]. Stored as
-     * three loose keys (height/miner/time) rather than a single JSON
-     * blob so a partial absence (e.g. unidentified miner) keeps the
-     * other fields readable. Pass null fields through unchanged so a
+     * two loose keys (height/miner) rather than a single JSON blob so
+     * a partial absence (e.g. unidentified miner) keeps the other
+     * field readable. Pass null fields through unchanged so a
      * miner-less block doesn't blank out a previously-good name.
      */
     fun saveLatestBlock(
         context: Context,
         height: Long?,
         minerName: String?,
-        time: String?,
     ) {
         val ed = prefs(context).edit()
         if (height != null && height >= 0) {
@@ -666,9 +665,6 @@ object WidgetPrefs {
             ed.putString(KEY_LATEST_BLOCK_MINER_GLOBAL, minerName)
         } else {
             ed.remove(KEY_LATEST_BLOCK_MINER_GLOBAL)
-        }
-        if (time != null) {
-            ed.putString(KEY_LATEST_BLOCK_TIME_GLOBAL, time)
         }
         ed.apply()
     }
@@ -681,10 +677,6 @@ object WidgetPrefs {
 
     fun loadLatestBlockMiner(context: Context): String? {
         return prefs(context).getString(KEY_LATEST_BLOCK_MINER_GLOBAL, null)
-    }
-
-    fun loadLatestBlockTime(context: Context): String? {
-        return prefs(context).getString(KEY_LATEST_BLOCK_TIME_GLOBAL, null)
     }
 
     private fun loadDouble(context: Context, key: String): Double? {
@@ -725,14 +717,121 @@ object WidgetPrefs {
      * Text prefix shown before the price (e.g. "$ 81,324"). SATS has no
      * widely-supported Unicode glyph yet — for that mode we render the
      * sat-symbol PNG in the icon slot and return an empty prefix here.
+     *
+     * For extended currencies the upstream feed now ships its own
+     * `sign` field with every price entry; the cached copy of that
+     * value (saved on each successful fetch) is authoritative. The
+     * bundled [CurrencyCatalog.symbolFor] table only kicks in before
+     * the first fetch for that code or when the feed omits the sign.
      */
-    fun symbolFor(currency: String): String = when (currency.uppercase()) {
+    fun symbolFor(context: Context, currency: String): String = when (currency.uppercase()) {
+        CURRENCY_USD -> "$"
         CURRENCY_EUR -> "€"
         CURRENCY_BTC -> "₿"
         CURRENCY_SATS -> ""
         // BLOCK: the height is its own label (e.g. "948,347"); no glyph
         // sits in front of it. The miner name is rendered above instead.
         CURRENCY_BLOCK -> ""
-        else -> "$"
+        // Any other catalog currency: the upstream-provided sign when
+        // cached, otherwise a recognised glyph (£, ¥, ₹, …) or, when
+        // none is unambiguous, the 3-letter code itself ("CZK 1,500,000").
+        else -> loadExtSign(context, currency) ?: CurrencyCatalog.symbolFor(currency)
+    }
+
+    // ---- Extended-currency caches (global, per currency code) ------------
+    //
+    // The bare summary.json only carries USD/EUR, so every other catalog
+    // currency keeps its own small global cache — current price, its fetch
+    // timestamp, and a compact history series per window (24h / 7d). Keyed
+    // by upper-cased code so multiple widgets on different currencies don't
+    // clobber each other.
+
+    private const val KEY_EXT_HISTORY_PREFIX = "ext_history_"
+    private const val KEY_EXT_LATEST_PRICE_PREFIX = "ext_latest_price_"
+    private const val KEY_EXT_LATEST_AT_PREFIX = "ext_latest_at_"
+    // Upstream display sign (`price.sign`) per extended code, e.g. "£" /
+    // "kr" / "CHF". Authoritative over the bundled symbol table.
+    private const val KEY_EXT_SIGN_PREFIX = "ext_sign_"
+
+    // Currency catalog cache (raw `/api/currencies/` body + fetch time).
+    private const val KEY_CATALOG_JSON_GLOBAL = "catalog_json_global"
+    private const val KEY_CATALOG_AT_GLOBAL = "catalog_at_global"
+
+    /** Cache key for [code]'s history in [period] (HISTORY_1D / HISTORY_7D). */
+    private fun extHistoryKey(code: String, period: String): String =
+        KEY_EXT_HISTORY_PREFIX + code.uppercase() + "_" + period.uppercase()
+
+    fun saveExtHistoryJson(context: Context, code: String, period: String, json: String) {
+        prefs(context).edit()
+            .putString(extHistoryKey(code, period), json)
+            .apply()
+    }
+
+    fun loadExtHistoryJson(context: Context, code: String, period: String): String? {
+        return prefs(context).getString(extHistoryKey(code, period), null)
+    }
+
+    fun saveExtLatestPrice(
+        context: Context,
+        code: String,
+        price: Double,
+        epochMs: Long = System.currentTimeMillis(),
+    ) {
+        if (!price.isFinite()) return
+        prefs(context).edit()
+            .putLong(
+                KEY_EXT_LATEST_PRICE_PREFIX + code.uppercase(),
+                java.lang.Double.doubleToRawLongBits(price),
+            )
+            .putLong(KEY_EXT_LATEST_AT_PREFIX + code.uppercase(), epochMs)
+            .apply()
+    }
+
+    fun loadExtLatestPrice(context: Context, code: String): Double? =
+        loadDouble(context, KEY_EXT_LATEST_PRICE_PREFIX + code.uppercase())
+
+    fun loadExtLatestAt(context: Context, code: String): Long {
+        return prefs(context).getLong(KEY_EXT_LATEST_AT_PREFIX + code.uppercase(), 0L)
+    }
+
+    /**
+     * Persist the upstream-provided display sign for [code] (e.g. "£",
+     * "kr", "CHF"). Blank/null signs are ignored so a feed hiccup can't
+     * blank out a previously-good value.
+     */
+    fun saveExtSign(context: Context, code: String, sign: String?) {
+        if (sign.isNullOrBlank()) return
+        prefs(context).edit()
+            .putString(KEY_EXT_SIGN_PREFIX + code.uppercase(), sign)
+            .apply()
+    }
+
+    /** Cached upstream sign for [code], or null before the first fetch. */
+    fun loadExtSign(context: Context, code: String): String? {
+        return prefs(context).getString(KEY_EXT_SIGN_PREFIX + code.uppercase(), null)
+    }
+
+    fun saveCatalogJson(
+        context: Context,
+        body: String,
+        epochMs: Long = System.currentTimeMillis(),
+    ) {
+        prefs(context).edit()
+            .putString(KEY_CATALOG_JSON_GLOBAL, body)
+            .putLong(KEY_CATALOG_AT_GLOBAL, epochMs)
+            .apply()
+    }
+
+    /**
+     * Raw cached catalog body from the last successful
+     * `/api/currencies/` fetch, or null when nothing has been cached
+     * yet (callers fall back to [CurrencyCatalog.defaultCatalog]).
+     */
+    fun loadCatalogJson(context: Context): String? {
+        return prefs(context).getString(KEY_CATALOG_JSON_GLOBAL, null)
+    }
+
+    fun loadCatalogAt(context: Context): Long {
+        return prefs(context).getLong(KEY_CATALOG_AT_GLOBAL, 0L)
     }
 }

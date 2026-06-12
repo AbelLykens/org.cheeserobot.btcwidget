@@ -261,7 +261,7 @@ class LauncherActivity : Activity() {
         nowEpochMs: Long,
     ): String {
         val currency = WidgetPrefs.loadCurrency(ctx, appWidgetId)
-        val symbol = WidgetPrefs.symbolFor(currency)
+        val symbol = WidgetPrefs.symbolFor(ctx, currency)
         val cachedPrice = WidgetPrefs.loadLastPriceText(ctx, appWidgetId)
         val lastSuccess = WidgetPrefs.loadLastSuccess(ctx, appWidgetId)
         val lastError = WidgetPrefs.loadLastError(ctx, appWidgetId)
@@ -401,7 +401,6 @@ class LauncherActivity : Activity() {
         }
         val intent = Intent(this, BitcoinPriceWidgetProvider::class.java).apply {
             action = BitcoinPriceWidgetProvider.ACTION_REFRESH
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
         }
         sendBroadcast(intent)
         Toast.makeText(
@@ -511,6 +510,8 @@ class LauncherActivity : Activity() {
     private fun formatWhole(price: Double): String {
         val nf = NumberFormat.getIntegerInstance(Locale.getDefault())
         nf.isGroupingUsed = true
-        return nf.format(price.toLong())
+        // Round, don't truncate — toLong() would render 79,999.7 as
+        // 79,999 while the widget (DecimalFormat HALF_UP) says 80,000.
+        return nf.format(Math.round(price))
     }
 }

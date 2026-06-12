@@ -2,7 +2,6 @@ package org.cheeserobot.btcwidget
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -25,12 +24,6 @@ import android.graphics.RectF
  * `ImageView` via `setImageViewBitmap` — exactly what this does.
  */
 object SparklineRenderer {
-
-    /** ARGB colour for an "up" 7-day series. Green-ish. */
-    const val COLOR_UP = 0xFF1B7F2E.toInt()
-
-    /** ARGB colour for a "down" 7-day series. Red-ish. */
-    const val COLOR_DOWN = 0xFFC02828.toInt()
 
     /**
      * Render the line to a fresh ARGB bitmap.
@@ -200,24 +193,9 @@ object SparklineRenderer {
     }
 
     /**
-     * Convenience wrapper: pick the right colour based on whether the
-     * 7-day series is up or down. First and last values define the
-     * direction; intermediate movement doesn't affect the colour.
-     *
-     * Kept for callers that want a baked-in colour. The widget
-     * provider goes through [isUp] instead so it can pull theme-aware
-     * hues from resources (which matter once the chart can sit
-     * directly on the user's wallpaper at 0 % panel opacity).
-     */
-    fun colorFor(values: DoubleArray): Int {
-        if (values.size < 2) return COLOR_UP
-        return if (values.last() >= values.first()) COLOR_UP else COLOR_DOWN
-    }
-
-    /**
-     * True when the 7-day series ended at or above where it started.
-     * Empty / single-sample inputs default to true — matches
-     * [colorFor]'s "flat counts as up" convention.
+     * True when the series ended at or above where it started. Empty
+     * and single-sample inputs default to true ("flat counts as up"),
+     * which keeps the caller's colour logic stable on degenerate data.
      */
     fun isUp(values: DoubleArray): Boolean {
         if (values.size < 2) return true
@@ -233,8 +211,4 @@ object SparklineRenderer {
      * theme-specific tuning.
      */
     const val DEFAULT_LINE_ALPHA: Int = 72
-
-    /** Helper for callers that just want an opaque ARGB int. */
-    @Suppress("unused")
-    fun toOpaque(argb: Int): Int = argb or Color.BLACK
 }

@@ -72,6 +72,33 @@ class WidgetConfigActivity : Activity() {
      */
     private var hasPersisted: Boolean = false
 
+    /**
+     * Set by the Cancel button. When true, [finish] skips the auto-save
+     * entirely and the activity exits with the RESULT_CANCELED it set in
+     * [onCreate] — on a fresh add the host then discards the widget; on
+     * a reconfigure the existing saved settings stay untouched.
+     */
+    private var discardRequested: Boolean = false
+
+    /**
+     * True between the user physically touching the currency spinner and
+     * the resulting onItemSelected. Distinguishes real picks (which should
+     * activate the "Other currency" radio) from the spurious callbacks
+     * Android fires after layout, setSelection and adapter swaps (which
+     * must NOT steal the selection from a quick-pick radio).
+     */
+    private var spinnerTouchedByUser: Boolean = false
+
+    /** In-flight preview price fetch; superseded fetches are cancelled. */
+    private var previewFetchJob: Job? = null
+
+    /**
+     * Don't refetch preview data when the cache for the selected currency
+     * is younger than this. Keeps radio-hopping cheap while still giving
+     * a freshly opened picker a current price.
+     */
+    private val previewFreshMs = 60_000L
+
     // Currency (simple section)
     private lateinit var rgCurrency: RadioGroup
     private lateinit var rbUsd: RadioButton
@@ -79,6 +106,16 @@ class WidgetConfigActivity : Activity() {
     private lateinit var rbBtc: RadioButton
     private lateinit var rbSats: RadioButton
     private lateinit var rbBlock: RadioButton
+    private lateinit var rbMore: RadioButton
+    private lateinit var spMoreCurrency: Spinner
+
+    /**
+     * Backing list for [spMoreCurrency], in display order. Index i in this
+     * list maps to spinner position i, so [selectedMoreCurrencyCode] can go
+     * from the selected position straight to a currency code. Populated from
+     * the bundled catalog immediately, then refreshed from the network.
+     */
+    private var currencyItems: List<CurrencyInfo> = emptyList()
 
     // Advanced toggle + container
     private lateinit var advancedToggle: TextView
@@ -209,6 +246,7 @@ class WidgetConfigActivity : Activity() {
 
         bindViews()
         wireSeparatorAdapter()
+        populateCurrencySpinner()
         installCheckerBackground()
         loadInitialState()
         loadBackendInitialState()
@@ -218,13 +256,27 @@ class WidgetConfigActivity : Activity() {
         wireBackendListeners()
         showVersionFooter()
         updatePreview()
+        refreshCatalogAsync()
+        // Fetch a live price for whatever currency the screen opened on,
+        // so the preview starts out showing real data.
+        refreshPreviewPriceAsync()
 
-        // The single "Done" button is now just an explicit close — the
-        // actual persistence happens inside the overridden finish(), so
-        // the system back button and the Done button take exactly the
-        // same path. Keeping the button gives users a visible confirm
+        // The "Done" button is just an explicit close — the actual
+        // persistence happens inside the overridden finish(), so the
+        // system back button and the Done button take exactly the same
+        // path. Keeping the button gives users a visible confirm
         // affordance even though it's no longer strictly required.
         findViewById<Button>(R.id.btn_done).setOnClickListener { finish() }
+
+        // "Cancel" is the only path that does NOT auto-save: it flags
+        // the discard before finishing so the overridden finish() skips
+        // persistAndPushUpdate. The RESULT_CANCELED set at the top of
+        // onCreate is still in force, so a fresh add gets rolled back
+        // by the host and a reconfigure keeps its previous settings.
+        findViewById<Button>(R.id.btn_cancel).setOnClickListener {
+            discardRequested = true
+            finish()
+        }
     }
 
     private fun bindViews() {
@@ -234,6 +286,8 @@ class WidgetConfigActivity : Activity() {
         rbBtc = findViewById(R.id.rb_btc)
         rbSats = findViewById(R.id.rb_sats)
         rbBlock = findViewById(R.id.rb_block)
+        rbMore = findViewById(R.id.rb_more)
+        spMoreCurrency = findViewById(R.id.sp_more_currency)
 
         advancedToggle = findViewById(R.id.advanced_toggle)
         advancedSection = findViewById(R.id.advanced_section)
@@ -289,6 +343,164 @@ class WidgetConfigActivity : Activity() {
     }
 
     /**
+     * Populate [spMoreCurrency] from the cached catalog (or the bundled
+     * fallback). Builds the backing [currencyItems] list and a matching
+     * label adapter. No item-selected listener is attached here — that's
+     * wired later in [wirePreviewListeners] so the programmatic selection
+     * in [loadInitialState] doesn't fire a premature preview update.
+     */
+    private fun populateCurrencySpinner() {
+        currencyItems = loadCatalogForPicker()
+        applyCurrencyAdapter()
+    }
+
+    /** (Re)build the spinner adapter from the current [currencyItems]. */
+    private fun applyCurrencyAdapter() {
+        val labels = currencyItems.map { it.label() }
+        val adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_item, labels
+        )
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spMoreCurrency.adapter = adapter
+    }
+
+    /**
+     * Catalog used to fill the picker: the cached `/api/currencies/` body
+     * when one is stored, otherwise the bundled offline list. Always
+     * non-empty so the spinner is usable on first launch.
+     */
+    private fun loadCatalogForPicker(): List<CurrencyInfo> {
+        val cached = WidgetPrefs.loadCatalogJson(this)?.let { CurrencyCatalog.parse(it) }
+        return cached ?: CurrencyCatalog.defaultCatalog()
+    }
+
+    /**
+     * Refresh the catalog from the network in the background. On success we
+     * persist the raw body and rebuild the spinner adapter, preserving the
+     * user's current selection by code so a mid-edit refresh doesn't jump
+     * their pick. Failures are silent — the bundled list already works.
+     */
+    private fun refreshCatalogAsync() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val body = withContext(Dispatchers.IO) { ExtendedFetcher.fetchCatalogBody() }
+            val parsed = body?.let { CurrencyCatalog.parse(it) } ?: return@launch
+            WidgetPrefs.saveCatalogJson(this@WidgetConfigActivity, body)
+
+            val previousCode = currencyItems.getOrNull(spMoreCurrency.selectedItemPosition)?.code
+            currencyItems = parsed
+            applyCurrencyAdapter()
+            if (previousCode != null) {
+                val idx = currencyItems.indexOfFirst { it.code == previousCode }
+                if (idx >= 0) spMoreCurrency.setSelection(idx)
+            }
+        }
+    }
+
+    /**
+     * Fetch live data for the currently selected currency so the preview
+     * shows a real, current price instead of a cached or hardcoded
+     * fallback. Results land in the same WidgetPrefs caches the live
+     * widget reads, so [updatePreview]'s existing live-or-fallback
+     * helpers pick them up automatically on the re-render.
+     *
+     * Branches:
+     *   - BTC: nothing to fetch (1 BTC = 1 BTC).
+     *   - USD / EUR / SATS / BLOCK: one bare summary.json round trip
+     *     (SATS derives from USD, BLOCK reads latest_block).
+     *   - everything else: one `summary.json?currency=` round trip via
+     *     [ExtendedFetcher].
+     *
+     * Skipped when the relevant cache is younger than [previewFreshMs];
+     * an in-flight fetch is cancelled when a newer selection supersedes
+     * it. Failures are silent — the preview keeps its current frame.
+     */
+    private fun refreshPreviewPriceAsync() {
+        val currency = selectedCurrency()
+        if (currency.equals(WidgetPrefs.CURRENCY_BTC, ignoreCase = true)) return
+
+        val now = System.currentTimeMillis()
+        val isExtended = CurrencyCatalog.isExtendedCurrency(currency)
+        val cacheAt = if (isExtended)
+            WidgetPrefs.loadExtLatestAt(this, currency)
+        else
+            WidgetPrefs.loadLatestUpstreamAt(this)
+        if (cacheAt > 0 && now - cacheAt < previewFreshMs) return
+
+        previewFetchJob?.cancel()
+        previewFetchJob = CoroutineScope(Dispatchers.Main).launch {
+            val fetched = withContext(Dispatchers.IO) {
+                if (isExtended) {
+                    val r = ExtendedFetcher.fetch(currency)
+                    if (r is ExtendedResult.Success) {
+                        WidgetPrefs.saveExtLatestPrice(
+                            this@WidgetConfigActivity, currency, r.price
+                        )
+                        WidgetPrefs.saveExtSign(
+                            this@WidgetConfigActivity, currency, r.sign
+                        )
+                        r.hist1dJson?.let {
+                            WidgetPrefs.saveExtHistoryJson(
+                                this@WidgetConfigActivity, currency,
+                                WidgetPrefs.HISTORY_1D, it,
+                            )
+                        }
+                        r.hist7dJson?.let {
+                            WidgetPrefs.saveExtHistoryJson(
+                                this@WidgetConfigActivity, currency,
+                                WidgetPrefs.HISTORY_7D, it,
+                            )
+                        }
+                        true
+                    } else false
+                } else {
+                    val r = SummaryFetcher.fetchSummary(
+                        WidgetPrefs.loadActiveBackendUrl(this@WidgetConfigActivity)
+                    )
+                    if (r is SummaryResult.Success) {
+                        val s = r.summary
+                        WidgetPrefs.saveHistoryJson(
+                            this@WidgetConfigActivity, WidgetPrefs.HISTORY_1D, s.hist1dJson
+                        )
+                        WidgetPrefs.saveHistoryJson(
+                            this@WidgetConfigActivity, WidgetPrefs.HISTORY_7D, s.hist7dJson
+                        )
+                        s.latestBlock?.let { block ->
+                            WidgetPrefs.saveLatestBlock(
+                                this@WidgetConfigActivity,
+                                height = block.height,
+                                minerName = block.minerName,
+                            )
+                        }
+                        WidgetPrefs.saveLatestUpstreamPrices(
+                            this@WidgetConfigActivity,
+                            usd = s.currentPrice(WidgetPrefs.CURRENCY_USD),
+                            eur = s.currentPrice(WidgetPrefs.CURRENCY_EUR),
+                        )
+                        true
+                    } else false
+                }
+            }
+            // Only repaint if the fetch succeeded AND the user hasn't
+            // moved on to a different currency in the meantime.
+            if (fetched && selectedCurrency() == currency) {
+                updatePreview()
+            }
+        }
+    }
+
+    /** Currency code for the current spinner selection (defaults to USD). */
+    private fun selectedMoreCurrencyCode(): String {
+        val pos = spMoreCurrency.selectedItemPosition
+        return currencyItems.getOrNull(pos)?.code ?: WidgetPrefs.CURRENCY_USD
+    }
+
+    /** Move the spinner to [code], if present in the current catalog. */
+    private fun selectMoreCurrency(code: String) {
+        val idx = currencyItems.indexOfFirst { it.code.equals(code, ignoreCase = true) }
+        if (idx >= 0) spMoreCurrency.setSelection(idx)
+    }
+
+    /**
      * Generate a small checkered tile and use it as the preview's
      * background so the opacity slider has a visible effect even when
      * the screen sits on a flat colour.
@@ -330,11 +542,17 @@ class WidgetConfigActivity : Activity() {
 
         val currency = WidgetPrefs.loadCurrency(this, appWidgetId)
         when (currency) {
+            WidgetPrefs.CURRENCY_USD -> rbUsd.isChecked = true
             WidgetPrefs.CURRENCY_EUR -> rbEur.isChecked = true
             WidgetPrefs.CURRENCY_BTC -> rbBtc.isChecked = true
             WidgetPrefs.CURRENCY_SATS -> rbSats.isChecked = true
             WidgetPrefs.CURRENCY_BLOCK -> rbBlock.isChecked = true
-            else -> rbUsd.isChecked = true
+            else -> {
+                // Any other catalog fiat (GBP, JPY, INR, …) lives behind the
+                // "Other currency" radio + spinner. Select it there.
+                rbMore.isChecked = true
+                selectMoreCurrency(currency)
+            }
         }
 
         val tracked = WidgetPrefs.loadTrackedAmount(this, appWidgetId)
@@ -358,8 +576,8 @@ class WidgetConfigActivity : Activity() {
         cbShowUnitLabel.isChecked = !WidgetPrefs.loadHideUnitLabel(this, appWidgetId)
         cbShowChart.isChecked = WidgetPrefs.loadShowChart(this, appWidgetId)
 
-        // loadChangeIndicator now never returns CHANGE_OFF — legacy
-        // values are migrated to CHANGE_1D inside WidgetPrefs.
+        // loadChangeIndicator now never returns the legacy "OFF" value —
+        // any unknown stored value is migrated to CHANGE_1D inside WidgetPrefs.
         when (WidgetPrefs.loadChangeIndicator(this, appWidgetId)) {
             WidgetPrefs.CHANGE_1W -> rbChange1w.isChecked = true
             else -> rbChange1d.isChecked = true
@@ -582,6 +800,50 @@ class WidgetConfigActivity : Activity() {
             applyCurrencyVisibility()
             applyMoscowTimeVisibility()
             updatePreview()
+            // Pull a real price for the newly selected currency so the
+            // preview shows live data instead of a cached/fallback value.
+            refreshPreviewPriceAsync()
+        }
+        // Picking a catalog currency implies the "Other currency" radio —
+        // but ONLY for genuine user picks. Spinners also fire
+        // onItemSelected once after initial layout and again after every
+        // programmatic setSelection / adapter swap (initial state restore,
+        // catalog refresh); without the touch guard that initial callback
+        // used to steal the selection from a quick-pick radio, so an
+        // existing USD widget opened as "Other currency → USD". The touch
+        // listener flags real interaction; programmatic events fall into
+        // the else-branch and only refresh the preview when the spinner
+        // is already the active source.
+        spMoreCurrency.setOnTouchListener { _, _ ->
+            spinnerTouchedByUser = true
+            false
+        }
+        spMoreCurrency.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (spinnerTouchedByUser) {
+                    spinnerTouchedByUser = false
+                    if (!rbMore.isChecked) {
+                        // Checking re-fires the RadioGroup listener above,
+                        // which runs visibility + preview + price fetch.
+                        rbMore.isChecked = true
+                    } else {
+                        applyCurrencyVisibility()
+                        applyMoscowTimeVisibility()
+                        updatePreview()
+                        refreshPreviewPriceAsync()
+                    }
+                } else if (rbMore.isChecked) {
+                    // Programmatic selection while "Other currency" is the
+                    // active source (e.g. catalog refresh re-applying the
+                    // saved code) — keep the preview in sync, don't touch
+                    // the radio group.
+                    applyCurrencyVisibility()
+                    applyMoscowTimeVisibility()
+                    updatePreview()
+                    refreshPreviewPriceAsync()
+                }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
         }
         rgChange.setOnCheckedChangeListener { _, _ -> updatePreview() }
         cbShowDecimals.setOnCheckedChangeListener { _, _ -> updatePreview() }
@@ -698,6 +960,7 @@ class WidgetConfigActivity : Activity() {
         groupNumberFormat.visibility = if (isBlock) View.GONE else View.VISIBLE
         cbShowDecimals.visibility = if (isBlock) View.GONE else View.VISIBLE
         cbShowCurrencyIcon.visibility = if (isBlock) View.GONE else View.VISIBLE
+        cbShowChart.visibility = View.VISIBLE
 
         // Relabel the unit-caption toggle so BLOCK users read it as
         // "Show miner name". The underlying preference key is the same
@@ -753,17 +1016,22 @@ class WidgetConfigActivity : Activity() {
         // doesn't apply to a block count, so we don't scale by it.
         val displayed = if (isBlock) samplePrice else samplePrice * tracked
         val moscowTime = cbMoscowTime.isChecked
-        val priceText = if (isBlock) {
-            // Block height is an integer count, never decimals or
-            // Moscow-Time-formatted. Honour the thousands separator so
-            // 948,347 reads more easily than 948347.
-            PriceFormat.format(displayed, showDecimals = false, separator)
-        } else if (PriceFormat.isMoscowTimeActive(currency, separator, moscowTime)) {
-            PriceFormat.formatMoscowTime(displayed)
-        } else {
-            PriceFormat.format(displayed, showDecimals, separator)
+        val priceText = when {
+            isBlock ->
+                // Block height is an integer count, never decimals or
+                // Moscow-Time-formatted. Honour the thousands separator so
+                // 948,347 reads more easily than 948347.
+                PriceFormat.format(displayed, showDecimals = false, separator)
+            PriceFormat.isMoscowTimeActive(currency, separator, moscowTime) ->
+                PriceFormat.formatMoscowTime(displayed)
+            currency == WidgetPrefs.CURRENCY_BTC ->
+                // "1 BTC" must stay "1" — adaptive decimals are for fiat
+                // prices, not the tracked-bitcoin amount.
+                PriceFormat.format(displayed, showDecimals, separator)
+            else ->
+                PriceFormat.formatPrice(displayed, showDecimals, separator)
         }
-        val symbol = WidgetPrefs.symbolFor(currency)
+        val symbol = WidgetPrefs.symbolFor(this, currency)
         val hideCurrencyIcon = !cbShowCurrencyIcon.isChecked
         // SATS uses the icon slot for the glyph (text prefix is empty).
         // For USD/EUR/BTC the prefix is dropped when the user has
@@ -976,6 +1244,14 @@ class WidgetConfigActivity : Activity() {
      * [BitcoinPriceWidgetProvider.buildSparklineBitmap].
      */
     private fun cachedSeriesFor(currency: String, period: String): DoubleArray? {
+        // Extended currencies keep their own per-currency, per-window cache.
+        if (CurrencyCatalog.isExtendedCurrency(currency)) {
+            val cachedExt = WidgetPrefs.loadExtHistoryJson(this, currency, period) ?: return null
+            val pts = ExtendedFetcher.decodeSeries(cachedExt)
+            if (pts.size < 2) return null
+            return DoubleArray(pts.size) { pts[it].second }
+        }
+
         val cached = WidgetPrefs.loadHistoryJson(this, period) ?: return null
         val parsed = HistoryFetcher.parse(cached) as? HistoryResult.Success ?: return null
         val isSats = currency.equals(WidgetPrefs.CURRENCY_SATS, ignoreCase = true)
@@ -1083,16 +1359,47 @@ class WidgetConfigActivity : Activity() {
                     WidgetPrefs.CURRENCY_EUR, WidgetPrefs.HISTORY_7D, fallback = 65109.00
                 ),
             )
-            else -> Triple(
-                liveOrFallbackPrice(WidgetPrefs.CURRENCY_USD, fallback = 80175.08),
-                liveOrFallbackHistorical(
-                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_1D, fallback = 81413.00
-                ),
-                liveOrFallbackHistorical(
-                    WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_7D, fallback = 76377.00
-                ),
-            )
+            else -> {
+                if (CurrencyCatalog.isExtendedCurrency(currency)) {
+                    extendedSampleData(currency)
+                } else {
+                    Triple(
+                        liveOrFallbackPrice(WidgetPrefs.CURRENCY_USD, fallback = 80175.08),
+                        liveOrFallbackHistorical(
+                            WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_1D, fallback = 81413.00
+                        ),
+                        liveOrFallbackHistorical(
+                            WidgetPrefs.CURRENCY_USD, WidgetPrefs.HISTORY_7D, fallback = 76377.00
+                        ),
+                    )
+                }
+            }
         }
+    }
+
+    /**
+     * Sample (price, 24h-ago, 7d-ago) for an extended currency, pulled from
+     * its per-currency caches when a widget has already fetched it. With no
+     * cache yet — and no universal sensible price across wildly different
+     * scales (JPY vs CHF) — we fall back to the current price alone and
+     * leave the historical legs null, so the preview shows a price-only
+     * card until a real fetch populates the cache.
+     */
+    private fun extendedSampleData(currency: String): Triple<Double, Double?, Double?> {
+        val cachedPrice = WidgetPrefs.loadExtLatestPrice(this, currency)
+            ?.takeIf { it.isFinite() && it > 0 }
+        val s1d = WidgetPrefs.loadExtHistoryJson(this, currency, WidgetPrefs.HISTORY_1D)
+            ?.let { ExtendedFetcher.decodeSeries(it) }?.takeIf { it.size >= 2 }
+        val s7d = WidgetPrefs.loadExtHistoryJson(this, currency, WidgetPrefs.HISTORY_7D)
+            ?.let { ExtendedFetcher.decodeSeries(it) }?.takeIf { it.size >= 2 }
+        val current = cachedPrice
+            ?: s1d?.lastOrNull()?.second
+            ?: s7d?.lastOrNull()?.second
+            ?: 50_000.0
+        // First (oldest) point in each window is the natural N-ago reference.
+        val oneDay = s1d?.firstOrNull()?.second
+        val oneWeek = s7d?.firstOrNull()?.second
+        return Triple(current, oneDay, oneWeek)
     }
 
     /**
@@ -1155,6 +1462,7 @@ class WidgetConfigActivity : Activity() {
         rbBtc.isChecked -> WidgetPrefs.CURRENCY_BTC
         rbSats.isChecked -> WidgetPrefs.CURRENCY_SATS
         rbBlock.isChecked -> WidgetPrefs.CURRENCY_BLOCK
+        rbMore.isChecked -> selectedMoreCurrencyCode()
         else -> WidgetPrefs.CURRENCY_USD
     }
 
@@ -1238,7 +1546,11 @@ class WidgetConfigActivity : Activity() {
         // saved URL stays active either way; an invalid in-progress
         // entry just gets dropped.
         backendValidationJob?.cancel()
-        if (!hasPersisted && appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        previewFetchJob?.cancel()
+        if (!discardRequested &&
+            !hasPersisted &&
+            appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID
+        ) {
             hasPersisted = true
             persistAndPushUpdate()
         }

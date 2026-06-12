@@ -47,10 +47,10 @@ class BatterySaverInfoActivity : Activity() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) return
             // Battery saver flipped while the dialog was on screen.
-            // Refresh all widgets and dismiss; the user has either just
-            // turned saver off (so widgets should fetch a fresh price)
-            // or just turned it on (so widgets should grey out).
-            broadcastWidgetRefresh()
+            // Just dismiss; onDestroy sends the single widget-refresh
+            // broadcast for every exit path, so firing one here too
+            // would double it up (the second used to land inside the
+            // 15s rate limit and waste a repaint).
             finish()
         }
     }
@@ -99,9 +99,10 @@ class BatterySaverInfoActivity : Activity() {
         // ACTION_POWER_SAVE_MODE_CHANGED already fired (and we already
         // finished). But the broadcast can race with onResume on some
         // OEM ROMs, so double-check here as a safety net.
+        // The refresh broadcast itself is onDestroy's job — single
+        // exit-path side effect, no doubling.
         val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
         if (pm != null && !pm.isPowerSaveMode) {
-            broadcastWidgetRefresh()
             finish()
         }
     }
@@ -145,9 +146,10 @@ class BatterySaverInfoActivity : Activity() {
             ComponentName(this, BitcoinPriceWidgetProvider::class.java)
         )
         if (ids.isEmpty()) return
+        // The receiver queries getAppWidgetIds itself in handleRefreshAction,
+        // so the explicit id list isn't passed as an extra here.
         val refresh = Intent(this, BitcoinPriceWidgetProvider::class.java).apply {
             action = BitcoinPriceWidgetProvider.ACTION_REFRESH
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
         }
         sendBroadcast(refresh)
     }

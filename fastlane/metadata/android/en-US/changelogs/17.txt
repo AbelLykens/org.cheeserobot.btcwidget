@@ -1,0 +1,9 @@
+v5.0 - Pick any of 126 currencies.
+
+* The new "Other currency" option opens a picker of 126 fiat
+  currencies, discovered from the backend catalog and cached for
+  offline use so the list shows up instantly.
+* Every currency now gets the full treatment — 24h sparkline and 7d
+  change — via the parameterised price feed, not just USD and EUR.
+* Quick-picks for US Dollars, Euros, Bitcoin, Sats, and Block height
+  stay one tap away.

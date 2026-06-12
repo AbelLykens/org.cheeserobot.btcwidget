@@ -4,6 +4,9 @@ import java.math.RoundingMode
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.log10
 
 /**
  * Locale-aware price formatter that respects the user's per-widget
@@ -25,6 +28,51 @@ import java.util.Locale
 object PriceFormat {
 
     fun format(price: Double, showDecimals: Boolean, separator: String): String {
+        return formatWithDecimals(price, if (showDecimals) 2 else 0, separator)
+    }
+
+    /**
+     * Format a fiat *price* with a decimal count chosen from its
+     * magnitude, so a single fixed "0 or 2 decimals" rule doesn't either
+     * clutter large numbers or strip all meaning from small ones.
+     *
+     * Because the per-currency feed quotes BTC directly in the chosen
+     * currency, that magnitude now spans a huge range — a few units of
+     * gold (XAU ≈ 15) up to billions of rupiah — and a flat "whole
+     * numbers only" display would render gold as a meaningless "15".
+     *
+     * The target is ~4 significant figures: decimals = 4 − (integer
+     * digits), clamped to [0, [MAX_ADAPTIVE_DECIMALS]]:
+     *
+     *    12345    → 0 decimals → "12,345"
+     *    1234.5   → 0          → "1,235"
+     *    123.4    → 1          → "123.4"
+     *    15.0314  → 2          → "15.03"     (XAU)
+     *    1.5      → 3          → "1.500"
+     *    0.05     → 3          → "0.050"
+     *
+     * When the user has explicitly turned "show decimals" on we keep at
+     * least 2 (so big round prices still read "63,400.00") but still add
+     * more for small values. BTC-amount and block-height displays do NOT
+     * use this — they call [format] directly so "1 BTC" stays "1".
+     */
+    fun formatPrice(price: Double, showDecimals: Boolean, separator: String): String {
+        val adaptive = adaptiveDecimals(price)
+        val decimals = if (showDecimals) maxOf(2, adaptive) else adaptive
+        return formatWithDecimals(price, decimals, separator)
+    }
+
+    /** Decimal places for [value], targeting ~4 significant figures. */
+    internal fun adaptiveDecimals(value: Double): Int {
+        val a = abs(value)
+        if (!a.isFinite() || a == 0.0) return 0
+        // Integer digits: floor(log10)+1 for a >= 1, else a single
+        // leading "0" before the point.
+        val intDigits = if (a >= 1.0) floor(log10(a)).toInt() + 1 else 1
+        return (TARGET_SIG_FIGS - intDigits).coerceIn(0, MAX_ADAPTIVE_DECIMALS)
+    }
+
+    private fun formatWithDecimals(price: Double, decimals: Int, separator: String): String {
         // Pick the grouping character.
         val symbols = DecimalFormatSymbols(Locale.getDefault())
         val groupChar: Char? = when (separator) {
@@ -35,7 +83,7 @@ object PriceFormat {
             else /* AUTO */ -> symbols.groupingSeparator
         }
 
-        val pattern = if (showDecimals) "#,##0.00" else "#,##0"
+        val pattern = if (decimals > 0) "#,##0." + "0".repeat(decimals) else "#,##0"
         val df = DecimalFormat(pattern)
         // Pin to HALF_UP. DecimalFormat's default is HALF_EVEN (banker's
         // rounding), which disagrees with Math.round() on exact .5
@@ -55,6 +103,12 @@ object PriceFormat {
         }
         return df.format(price)
     }
+
+    /** Significant-figure target for [adaptiveDecimals]. */
+    private const val TARGET_SIG_FIGS = 4
+
+    /** Hard cap on adaptive decimals so tiny values don't explode the width. */
+    private const val MAX_ADAPTIVE_DECIMALS = 4
 
     /**
      * Easter-egg "Moscow Time" formatter. The sats-per-USD figure

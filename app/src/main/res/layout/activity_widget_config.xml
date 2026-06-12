@@ -134,7 +134,24 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/config_block" />
+
+                <RadioButton
+                    android:id="@+id/rb_more"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_more" />
             </RadioGroup>
+
+            <!-- Full currency catalog (126+). Selecting an entry implies
+                 the "Other currency" radio above. Populated from the
+                 bundled fallback instantly, then refreshed from
+                 /api/currencies/ in the background. -->
+            <Spinner
+                android:id="@+id/sp_more_currency"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="24dp"
+                android:layout_marginBottom="16dp" />
 
             <!-- ============================================================
                  Advanced toggle. Tapping flips the visibility of
@@ -560,20 +577,39 @@
             </LinearLayout>
 
             <!--
-                Single "Done" action. Settings auto-save when the
+                "Done" + "Cancel" pair. Settings auto-save when the
                 activity finishes (Done button, system back button, or
                 swipe-back gesture all run the same persist+update path
                 via the overridden Activity.finish() in WidgetConfigActivity).
-                The hint below the button reassures the user that nothing
+                Cancel is the one deliberate escape hatch: it discards
+                every change made this session and finishes with
+                RESULT_CANCELED (on a fresh add, that also un-places the
+                widget). The hint below reassures the user that nothing
                 is lost on back-out.
             -->
-            <Button
-                android:id="@+id/btn_done"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="4dp"
-                android:text="@string/config_done" />
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_cancel"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/config_cancel" />
+
+                <Button
+                    android:id="@+id/btn_done"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="2"
+                    android:text="@string/config_done" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"

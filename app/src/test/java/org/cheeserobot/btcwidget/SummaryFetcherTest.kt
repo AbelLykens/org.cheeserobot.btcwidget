@@ -66,7 +66,6 @@ class SummaryFetcherTest {
         assertNotNull("Expected latest_block to parse", block)
         assertEquals(948347L, block!!.height)
         assertEquals("SpiderPool", block.minerName)
-        assertEquals("2026-05-07T18:11:53+00:00", block.time)
     }
 
     @Test fun missingBlockKeyDegradesGracefully() {

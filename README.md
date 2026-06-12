@@ -95,11 +95,14 @@ drawer. Don't worry, it's installed.
 2. Tap **Widgets** in the menu that appears.
 3. Scroll to **Cheese BTC Widget** and drag **BTC Price** onto the
    home screen.
-4. A small picker pops up. Tap **US Dollars ($)** or **Euros (€)**.
+4. A small picker pops up. Tap a quick-pick — **US Dollars ($)**,
+   **Euros (€)**, **Bitcoin (₿)**, **Sats per USD**, or **Block
+   height** — or choose **Other currency** and pick from the full
+   catalog of 126 fiat currencies in the spinner.
 5. The widget loads with the current price within a few seconds.
 
-Want both currencies? Just repeat the steps and pick the other one the
-second time. The widgets are independent.
+Want more than one? Just repeat the steps and pick a different
+currency the second time. The widgets are independent.
 
 ### Resizing
 

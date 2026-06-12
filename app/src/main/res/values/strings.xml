@@ -11,6 +11,7 @@
     <string name="config_btc">Bitcoin (₿) — always 1 BTC</string>
     <string name="config_sats">Sats per USD</string>
     <string name="config_block">Block height — latest block</string>
+    <string name="config_more">Other currency</string>
 
     <string name="config_preview_label">Preview</string>
 
@@ -105,14 +106,14 @@
     <string name="config_change_1w">7d</string>
 
     <!--
-        config_save / config_cancel are kept around in case any reused
-        layout references them, but the live config screen now uses the
-        single "Done" action below and auto-saves on every close path.
+        config_save is kept around in case any reused layout references
+        it; the live config screen uses the "Done" + "Cancel" pair below.
+        Done (and every other close path) auto-saves; Cancel discards.
     -->
     <string name="config_save">Save</string>
-    <string name="config_cancel">Cancel</string>
     <string name="config_done">Done</string>
-    <string name="config_autosave_hint">Changes save automatically when you close this screen.</string>
+    <string name="config_cancel">Cancel</string>
+    <string name="config_autosave_hint">Changes save automatically when you close this screen. Cancel discards them.</string>
 
     <string name="config_version_label">Version %1$s</string>
 

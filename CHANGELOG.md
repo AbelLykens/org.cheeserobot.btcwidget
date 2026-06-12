@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0] - 2026-06-12
+
+### Added
+- **Any of 126 fiat currencies.** The configure screen's quick-pick
+  radios (US Dollars, Euros, Bitcoin, Sats per USD, Block height) are
+  now joined by an "Other currency" option backed by a spinner of the
+  full catalog. The list is discovered from the backend's
+  `GET /api/currencies/` endpoint and cached locally, with a bundled
+  offline fallback covering all 126 codes and display names so the
+  picker populates instantly even on first launch with no network.
+- **Full history for every currency.** Non-USD/EUR fiats fetch the
+  parameterised `GET /price/summary.json?currency={code}` — the same
+  envelope, keyed generically (`price.price`, hist arrays of
+  `{when_unix, price}`) — so every currency gets both the 24h
+  sparkline background and the 7d change indicator, not just price.
+  The server applies its FX rate across the BTC-USD history, so the
+  chart and change % are available everywhere.
+
+### Changed
+- New `CurrencyCatalog` (catalog parse + offline fallback + symbols +
+  routing predicates) and `ExtendedFetcher` (per-currency
+  `summary.json?currency=` fetch + compact per-window series cache).
+  `refreshWidgets` now routes each widget to the BTC (no network),
+  summary (USD/EUR/SATS/BLOCK), or extended (everything else) path.
+- The config screen uses a "Done" + "Cancel" pair: Done (and every
+  other close path) auto-saves; Cancel discards.
+- App icons migrated from PNG to webp.
+
+### Removed
+- The unused `Notifier` helper and the launcher mipmap icon assets
+  (the widget has no launcher icon — the widget itself is the app).
+
+[5.0]: https://github.com/AbelLykens/org.cheeserobot.btcwidget/releases/tag/v5.0
+
 ## [4.0] - 2026-05-13
 
 ### Added
